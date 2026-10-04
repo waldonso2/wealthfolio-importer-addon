@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.0.2 (`manifest.json` / `package.json`).
+> Stand: Version 2.1.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3.
@@ -98,6 +98,8 @@ src/
 ├── common.ts               Gemeinsame Helfer beider Transformer (makeCashAct, matchPattern, …)
 ├── scalable.ts             Scalable Capital: ScRow[] → ActivityImportEx[] (Abschnitt 14)
 ├── ImportPage.tsx          Import-Wizard (Zustandsautomat, SDK-Aufrufe, Import-Schleife)
+├── UpdateBanner.tsx        Hinweis auf neue Version (über Import und Settings)
+├── updateCheck.ts          Prüft GitHub-Releases auf eine neuere Version (4.2)
 ├── SecurityMappingStep.tsx UI-Schritt: ISIN → Ticker zuordnen
 ├── SettingsPage.tsx        Einstellungen: Konten, Transfer-Patterns, Security-Mappings
 ├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets)
@@ -105,6 +107,7 @@ src/
 ├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, …)
 ├── transform.test.ts       Unit- und Fixture-Tests für transform() (37 Tests)
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
+├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 └── __fixtures__/
     ├── tr-sample.csv       14 Zeilen, deckt alle unterstützten TR-Typen ab
     └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
@@ -145,6 +148,7 @@ flowchart TD
 | **Domänenlogik** | `transform.ts`, `scalable.ts`, `common.ts`, `formats.ts`, `types.ts` | Rein, synchron, kein React, kein `ctx`. Vollständig unit-testbar. `formats.ts` ist die einzige Stelle, die CSV parst. |
 | **Persistenz** | `settings.ts` | Einzige Stelle, die `ctx.api.secrets` nutzt. |
 | **Orchestrierung + UI** | `ImportPage.tsx` | Ruft `parseAndTransform()`, SDK-APIs, steuert den Wizard. Enthält noch Logik (Mapping-Anwendung, Import-Schleife). |
+| **Update-Hinweis** | `updateCheck.ts`, `UpdateBanner.tsx` | Einzige Stelle mit Netzwerkzugriff (`ctx.api.network`) und Addon-Speicher (`ctx.api.storage`), siehe 4.2. |
 | **Reine UI** | `SecurityMappingStep.tsx`, `SettingsPage.tsx` | Formulare / Darstellung; Mapping-Step ist zustandslos bzgl. Persistenz (Callbacks). |
 | **Bootstrap** | `addon.tsx` | Registrierung beim Host; keine Fachlogik. |
 
@@ -170,6 +174,7 @@ Default-Export `enable(ctx)` auf.
    und danach nur `root.render(...)`. Mehrere Roots auf demselben Knoten brechen das
    Rendering (siehe CHANGELOG 1.3.1). **Bei neuen Routen dieses Muster beibehalten.**
 4. **`Nav`**: einfache Tab-Leiste, navigiert über `ctx.api.navigation.navigate(path)`.
+   Darunter steht auf beiden Seiten `UpdateBanner` (4.2).
 5. **`ctx.onDisable`**: Root unmounten, Sidebar-Eintrag entfernen.
 
 Jede Seite bekommt `ctx` als Prop; es gibt keinen globalen State/Context-Provider.
@@ -187,6 +192,39 @@ Bis einschließlich 1.4.0 lautete die `id` `trade-republic-importer`. **Eine Än
 ist ein Bruch:** Wealthfolio behandelt das Addon dann als neues Addon. Das alte muss
 deinstalliert werden, und die Einstellungen (Konten, Transfer-Patterns, Security-Mappings)
 müssen neu eingerichtet werden, weil `secrets` an die `id` gebunden sind.
+
+### 4.2 Updates und Update-Hinweis
+
+**Wie Wealthfolio Addons aktualisiert** (geprüft am Wealthfolio-Quellcode,
+`crates/core/src/addons/service.rs`):
+- Update-Prüfung und -Installation laufen **nur** über den Wealthfolio-Store
+  (`https://wealthfolio.app/api/addons/update-check?addonId=…`). Eine eigene
+  Update-Adresse kann ein Addon nicht angeben, und es kann sich nicht selbst ersetzen.
+  Dieses Addon ist dort nicht gelistet; Aufnahme laut Wealthfolio-Doku über
+  support@wealthfolio.app.
+- **„Install from File"** ersetzt nur den Ordner `addons/<id>/` (mit Sicherung während des
+  Austauschs). Ein Addon mit gleicher `id` wird überschrieben, Deinstallieren ist nicht nötig.
+- Die **Einstellungen** liegen im Schlüsselbund des Betriebssystems unter
+  `addon:<id>:config` (`ctx.api.secrets`) und bleiben bei „Install from File" erhalten.
+  `ctx.api.storage` (Update-Cache, siehe unten) übersteht Updates und wird beim
+  Deinstallieren gelöscht.
+
+**Update-Hinweis im Addon (seit 2.1.0):**
+- `updateCheck.ts` fragt `https://api.github.com/repos/waldonso2/wealthfolio-importer-addon/releases/latest`
+  über `ctx.api.network.request` ab – **höchstens einmal pro 24 h**; das Ergebnis liegt
+  in `ctx.api.storage` unter `update-check`.
+- Ist `tag_name` neuer als die installierte Version (`version` aus `manifest.json`, beim
+  Build eingebunden), zeigt `UpdateBanner` Version, Download-Adresse der ZIP-Datei und
+  Release-Seite.
+- Die Sandbox des Addons (`<iframe sandbox="allow-scripts">`) erlaubt weder neue Fenster
+  noch das Öffnen externer Seiten. Die Adresse wird deshalb **zum Kopieren** in einem
+  Textfeld angezeigt, nicht als Link.
+- Fehler (keine Freigabe für `api.github.com`, kein Netz, GitHub-Fehler) führen nie zu
+  einer Fehlermeldung, sondern nur dazu, dass kein Hinweis erscheint.
+- Voraussetzung im Manifest: Berechtigung `network` → `request` und
+  `"network": { "allowedHosts": ["api.github.com"] }`. Der Nutzer gibt den Host bei der
+  Installation frei. Wird das Repo umbenannt oder verschoben, `RELEASES_API_URL` in
+  `updateCheck.ts` anpassen; der Name des ZIP-Assets steht dort ebenfalls.
 
 ---
 
@@ -508,6 +546,9 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 | `query` | `invalidateQueries` | ImportPage |
 | `portfolio` | `update` | ImportPage |
 | `market-data` | `searchTicker` | SecurityMappingStep |
+| `network` | `request` (nur Host `api.github.com`, `manifest.network.allowedHosts`) | updateCheck.ts (seit 2.1.0) |
+
+`ctx.api.storage` (Update-Cache) ist eine Grundfunktion und braucht keine Berechtigung.
 
 **Neue SDK-Aufrufe ⇒ Eintrag in `permissions` ergänzen** (und Versions-Bump, da Manifest-Änderung).
 
@@ -515,7 +556,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 68 Tests in zwei Dateien; die UI (`*.tsx`) ist nicht getestet.
+- 76 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
 - **`src/transform.test.ts`** (37 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (14 Zeilen → 17 Aktivitäten +
@@ -526,7 +567,11 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
   Formaterkennung, `tradeFinalCash`, Fixture-Test mit
   `src/__fixtures__/scalable-sample.csv` (26 Zeilen → 33 Aktivitäten + 9 skipped,
   Endbestände). Die Tests laufen unabhängig von der Zeitzone des Rechners.
-- `CONFIG` in **beiden** Testdateien muss alle Felder von `AddonSettings` enthalten.
+- **`src/updateCheck.test.ts`** (8 Tests): Versionsvergleich, Auswertung der GitHub-Antwort,
+  Cache (frisch/abgelaufen), Verhalten bei blockierter oder fehlerhafter Anfrage – mit
+  einem nachgebauten `ctx`.
+- `CONFIG` in `transform.test.ts` und `scalable.test.ts` muss alle Felder von
+  `AddonSettings` enthalten.
 - Neue Transaktionstypen: **Fixture-Zeile ergänzen** (fiktive Daten, echtes Spaltenformat)
   und die Zähler im Fixture-Test anpassen (siehe `CONTRIBUTING.md`).
 
@@ -642,6 +687,9 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
    hat doppelte `BUY`/`SELL` in Wealthfolio (siehe 6.4). Das Addon bereinigt sie nicht.
 10. **Scalable-Annahmen** (14.3, „Offene Einzelfälle") sind nur an einem echten Export
     geprüft.
+11. **Kein echtes Auto-Update:** Ohne Listung im Wealthfolio-Store kann das Addon neue
+    Versionen nur anzeigen (4.2); Download und „Install from File" bleiben manuell.
+    `UpdateBanner` ist nur im echten Addon prüfbar (Netzwerkfreigabe, Sandbox).
 
 ---
 
@@ -833,6 +881,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.0.0 | **Bruch** | Umbenennung in **Broker Importer**: Addon-ID `broker-importer` (vorher `trade-republic-importer`), Paket `broker-importer-addon`, Release-ZIP `broker-importer-addon.zip`, Links auf `waldonso2/wealthfolio-importer-addon`. Bestehende Installationen müssen neu installiert und neu eingerichtet werden. | `manifest.json`, `addon.tsx`, `package.json`, `release.yml`, Doku | 4.1 |
 | 2.0.1 | Änderung | Suchfeld im Security-Mapping ist mit dem **Wertpapiernamen** (jüngster Name aus der Datei) statt der ISIN vorbelegt. | `SecurityMappingStep.tsx`, `ImportPage.tsx` | 6.2, 7 |
 | 2.0.2 | Fix | Erneut importierte **`BUY`/`SELL`** werden als Duplikat erkannt (vorher doppelt angelegt). Trades tragen den exakten `amount` (`tradeFinalCash`). | `common.ts`, `transform.ts`, `scalable.ts` | 5.5 Nr. 7, 6.4 |
+| 2.1.0 | Feature | **Update-Hinweis:** einmal täglich Abfrage der GitHub-Releases, Hinweis mit Download-Adresse, wenn eine neuere Version existiert. Neue Berechtigung `network` (nur `api.github.com`). | `updateCheck.ts`, `UpdateBanner.tsx`, `addon.tsx`, `manifest.json` | 4.2, 9 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3).

@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0] - 2026-10-04
+
+### Added
+
+- Update hint: once a day the addon checks the latest GitHub release and, if it is newer than the installed version, shows the version and the download address of `broker-importer-addon.zip` above the Import and Settings pages. Wealthfolio's sandbox doesn't let addons open external links, so the address is shown for copying. Installing stays manual via Settings → Add-ons → Install from File, which keeps your settings.
+- New permission `network` (`request`), limited to `api.github.com`. Wealthfolio asks you to approve the host on install; without approval the addon works as before, just without the hint.
+
 ## [2.0.2] - 2026-10-04
 
 ### Fixed

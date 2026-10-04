@@ -23,6 +23,20 @@ addon, so:
 Activities you already imported stay in Wealthfolio; only the addon's own
 settings need to be re-entered.
 
+## Updates
+
+Wealthfolio can only update addons listed in its own store, which this addon
+isn't (yet). Instead, the addon checks GitHub once a day for a newer release
+and shows a hint with the download address of the new
+`broker-importer-addon.zip` above the Import and Settings pages. To update,
+download the ZIP and install it via **Settings → Add-ons → Install from File**;
+the existing addon is replaced and your settings (accounts, transfer patterns,
+security mappings) are kept.
+
+The check needs network access to `api.github.com`, which Wealthfolio asks you
+to approve when installing. Without it, everything else works; you just don't
+get the hint.
+
 ## Setup
 
 1. Install the addon:

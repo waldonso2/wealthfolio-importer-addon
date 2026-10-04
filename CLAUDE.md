@@ -34,6 +34,7 @@ All business logic is in `src/transform.ts` — tests live in `src/transform.tes
 | `src/__fixtures__/scalable-sample.csv` | 26-row fabricated Scalable fixture (BOM, CRLF, `;`, decimal comma) covering every supported Scalable type |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
 | `src/addon.tsx` | Entry point — registers pages and sidebar item via addon-sdk |
+| `src/updateCheck.ts` / `src/UpdateBanner.tsx` | Daily GitHub release check (`ctx.api.network`, host `api.github.com`) and the update hint shown above both pages; the sandboxed iframe can't open external links, so the URL is shown for copying |
 | `docs/ARCHITECTURE.md` | Full architecture (German): modules, data flow, invariants, change recipes |
 
 ## Commands
