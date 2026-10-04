@@ -7,6 +7,9 @@ export const DEFAULT_SETTINGS: AddonSettings = {
   cashAccountId: "",
   cashCurrency: "EUR",
   portfolioAccountId: "",
+  scalableCashAccountId: "",
+  scalableCashCurrency: "EUR",
+  scalablePortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
 };

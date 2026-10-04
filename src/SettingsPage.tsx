@@ -108,8 +108,14 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
   const clearAllSecurityMappings = () => set({ securityMappings: {} });
 
   const handleSave = async () => {
-    if (!settings.cashAccountId || !settings.portfolioAccountId) {
-      setError("Please select both the Cash and Portfolio accounts.");
+    const tr = [settings.cashAccountId, settings.portfolioAccountId];
+    const sc = [settings.scalableCashAccountId, settings.scalablePortfolioAccountId];
+    const complete = (pair: string[]) => pair.every(Boolean);
+    const partial = (pair: string[]) => pair.some(Boolean) && !complete(pair);
+    if (partial(tr) || partial(sc) || (!complete(tr) && !complete(sc))) {
+      setError(
+        "Select both the cash and the securities account for each broker you import from (Trade Republic and/or Scalable Capital).",
+      );
       return;
     }
     setError("");
@@ -129,7 +135,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
   return (
     <div className="max-w-2xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Trade Republic Importer — Settings</h1>
+        <h1 className="text-2xl font-semibold">Broker Importer — Settings</h1>
         <p className="text-muted-foreground mt-1 text-sm">
           Configure once; settings are saved securely and pre-filled on every import.
         </p>
@@ -138,7 +144,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
       {/* Accounts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Accounts</CardTitle>
+          <CardTitle className="text-base">Trade Republic accounts</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-muted-foreground text-xs">
@@ -180,6 +186,48 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
         </CardContent>
       </Card>
 
+      {/* Scalable Capital accounts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Scalable Capital accounts</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-xs">
+            Scalable Capital exports are imported into their own pair of accounts, so they never
+            mix with Trade Republic. Leave empty if you don't use Scalable Capital.
+          </p>
+          <div className="space-y-1">
+            <Label>Scalable Capital cash account</Label>
+            <AccountSelect
+              accounts={accounts}
+              value={settings.scalableCashAccountId}
+              onChange={(v) => {
+                const acc = accounts.find((a) => a.id === v);
+                set({ scalableCashAccountId: v, scalableCashCurrency: acc?.currency ?? "EUR" });
+              }}
+              placeholder="Select cash account…"
+              filterType="CASH"
+            />
+            <p className="text-muted-foreground text-xs">
+              Receives deposits, withdrawals, interest, fees and taxes (e.g. Vorabpauschale).
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label>Scalable Capital securities account</Label>
+            <AccountSelect
+              accounts={accounts}
+              value={settings.scalablePortfolioAccountId}
+              onChange={(v) => set({ scalablePortfolioAccountId: v })}
+              placeholder="Select securities account…"
+              filterType="SECURITIES"
+            />
+            <p className="text-muted-foreground text-xs">
+              Receives buy/sell trades and dividends, with internal transfers to the cash account.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Transfer patterns */}
       <Card>
         <CardHeader>
@@ -200,7 +248,9 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
             </li>
           </ul>
           <p className="text-muted-foreground text-xs">
-            IBAN is tried first (more precise). You can set both on the same pattern.
+            IBAN is tried first (more precise). You can set both on the same pattern. Scalable
+            Capital exports have no counterparty IBAN, so their withdrawals are matched against the
+            note (<code>Notiz</code>) only.
           </p>
           {settings.transferPatterns.length === 0 && (
             <p className="text-muted-foreground text-xs italic">No transfer patterns configured.</p>

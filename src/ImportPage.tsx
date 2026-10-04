@@ -18,12 +18,12 @@ import {
   TabsList,
   TabsTrigger,
 } from "@wealthfolio/ui";
-import Papa from "papaparse";
 import { loadSettings, saveSettings } from "./settings";
 import { SecurityMappingStep } from "./SecurityMappingStep";
 import type { SecurityInfo, SecurityMapping } from "./SecurityMappingStep";
-import { isCashSymbol, transform } from "./transform";
-import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult, TrRow } from "./types";
+import { isCashSymbol } from "./common";
+import { FORMAT_LABEL, isFormatConfigured, parseAndTransform, type ImportFormat } from "./formats";
+import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult } from "./types";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ function UploadZone({ onFile, error }: { onFile: (f: File) => void; error: strin
         }}
       />
       <Icons.Upload className="text-muted-foreground mx-auto mb-3 h-8 w-8" />
-      <p className="text-sm font-medium">Drop your Trade Republic CSV here</p>
+      <p className="text-sm font-medium">Drop your Trade Republic or Scalable Capital CSV here</p>
       <p className="text-muted-foreground mt-1 text-xs">or click to browse</p>
       {error && <p className="text-destructive mt-3 text-xs">{error}</p>}
     </div>
@@ -236,6 +236,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
 
   const [parseResult, setParseResult] = useState<TransformResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [format, setFormat] = useState<ImportFormat | null>(null);
   const [securities, setSecurities] = useState<SecurityInfo[]>([]);
   const [mappings, setMappings] = useState<Map<string, SecurityMapping>>(new Map());
   const [checked, setChecked] = useState<ActivityImport[] | null>(null);
@@ -257,8 +258,10 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   const accountName = useCallback(
     (id: string): string => {
       if (!settings) return id;
-      if (id === settings.cashAccountId) return "Cash";
-      if (id === settings.portfolioAccountId) return "Portfolio";
+      if (id === settings.cashAccountId) return "TR Cash";
+      if (id === settings.portfolioAccountId) return "TR Portfolio";
+      if (id === settings.scalableCashAccountId) return "Scalable Cash";
+      if (id === settings.scalablePortfolioAccountId) return "Scalable Portfolio";
       return accounts.find((a) => a.id === id)?.name ?? id;
     },
     [settings, accounts],
@@ -306,7 +309,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       setFileError("");
 
       if (!file.name.toLowerCase().endsWith(".csv")) {
-        setFileError("Please upload a .csv file exported from Trade Republic.");
+        setFileError("Please upload a .csv file exported from Trade Republic or Scalable Capital.");
         return;
       }
 
@@ -318,14 +321,15 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         return;
       }
 
-      const parsed = Papa.parse<TrRow>(text, { header: true, skipEmptyLines: true });
-      if (parsed.data.length === 0) {
-        setFileError("No rows found. Make sure you exported from Trade Republic.");
+      const outcome = parseAndTransform(text, settings);
+      if (!outcome.ok) {
+        setFileError(outcome.error);
         return;
       }
 
-      const result = transform(parsed.data, settings);
+      const { result } = outcome;
       setParseResult(result);
+      setFormat(outcome.format);
       setFileName(file.name);
       setChecked(null);
       setExcludedLines(new Set());
@@ -519,6 +523,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     setStep("upload");
     setParseResult(null);
     setFileName("");
+    setFormat(null);
     setSecurities([]);
     setMappings(new Map());
     setChecked(null);
@@ -540,7 +545,11 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   // ────────────────────────────────────────────────────────────────────────────
 
   // Not configured
-  if (settings && (!settings.cashAccountId || !settings.portfolioAccountId)) {
+  if (
+    settings &&
+    !isFormatConfigured("trade-republic", settings) &&
+    !isFormatConfigured("scalable", settings)
+  ) {
     return (
       <div className="max-w-lg p-6">
         <Card>
@@ -548,8 +557,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
             <Icons.Settings className="text-muted-foreground mx-auto h-8 w-8" />
             <p className="font-medium">Settings not configured</p>
             <p className="text-muted-foreground text-sm">
-              Please go to the <strong>Settings</strong> tab and select your Cash and Portfolio
-              accounts before importing.
+              Please go to the <strong>Settings</strong> tab and select the Cash and Portfolio
+              accounts for Trade Republic and/or Scalable Capital before importing.
             </p>
           </CardContent>
         </Card>
@@ -564,10 +573,10 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     return (
       <div className="max-w-xl space-y-4 p-6">
         <div>
-          <h1 className="text-2xl font-semibold">Import Trade Republic CSV</h1>
+          <h1 className="text-2xl font-semibold">Import broker CSV</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Export from Trade Republic → Settings → Documents → Transaction history, then upload
-            below.
+            Trade Republic: Settings → Documents → Transaction history. Scalable Capital: export
+            your transactions as CSV. The format is detected automatically.
           </p>
         </div>
         {parseResult && fileName ? (
@@ -577,6 +586,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{fileName}</p>
                 <p className="text-muted-foreground text-xs">
+                  {format ? `${FORMAT_LABEL[format]} · ` : ""}
                   {parseResult.activities.length} activities parsed
                 </p>
               </div>

@@ -27,7 +27,7 @@ function SettingsWrapper({ ctx }: { ctx: AddonContext }) {
 export default function enable(ctx: AddonContext) {
   const sidebarItem = ctx.sidebar.addItem({
     id: ADDON_ID,
-    label: "Trade Republic",
+    label: "Broker Import",
     icon: "bank",
     route: `/addon/${ADDON_ID}`,
     order: 100,
