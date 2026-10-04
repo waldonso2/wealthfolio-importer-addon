@@ -201,6 +201,7 @@ flowchart TD
 | `timeTag(dt)` | Hängt ` [HH:MM:SS.ffffff]` an Kommentare – macht sonst identische Aktivitäten unterscheidbar, weil Wealthfolios Idempotenz-Key das Datum nicht berücksichtigt |
 | `matchPattern(iban, desc, patterns)` | Transfer-Pattern suchen: (1) IBAN exakt auf `counterparty_iban`, (2) IBAN als Teilstring in `description`, (3) Keyword in `description` (case-insensitiv) |
 | `makeCashAct(currency)` | Fabrik für Cash-Aktivitäten: `symbol = "$CASH-<Währung>"`, `quantity = unitPrice = "1"`, `amount` gesetzt |
+| `isCashSymbol(symbol)` (exportiert) | `true` für jedes `$CASH-…`-Symbol, unabhängig von der Währung – von `ImportPage` genutzt, um Cash- von Wertpapier-Aktivitäten zu trennen |
 
 ### 5.4 Mapping-Tabelle (Ist-Zustand)
 
@@ -309,7 +310,7 @@ sequenceDiagram
 
 1. **Upload (`handleFile`)**: Dateiendung `.csv` prüfen, `file.text()`, `Papa.parse`.
 2. **Transform**: `transform(parsed.data, settings)` → `parseResult`.
-3. **Wertpapiere ermitteln**: alle Aktivitäten mit `symbol` ≠ `$CASH-EUR` → `SecurityInfo { isin, name, count }`.
+3. **Wertpapiere ermitteln**: alle Aktivitäten, deren `symbol` kein Cash-Symbol ist (`isCashSymbol`) → `SecurityInfo { isin, name, count }`.
 4. **Vorbefüllung** aus `settings.securityMappings`. Sind *alle* ISINs bekannt, wird
    `SecurityMappingStep` übersprungen.
 5. **`applySecurityMappings`**: ersetzt ISIN durch Ticker-Daten aus `SymbolSearchResult`
@@ -494,25 +495,20 @@ keine Release-Notes.
 
 Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt für Änderungen:
 
-1. **Hartkodiertes `$CASH-EUR` in `ImportPage.tsx`** (`applySecurityMappings` und die
-   Wertpapier-Erkennung in `handleFile`), während `transform.ts`
-   `$CASH-${cashCurrency}` erzeugt. Bei einem Cash-Konto in anderer Währung würden
-   Cash-Aktivitäten fälschlich als „Wertpapier" im Mapping-Schritt auftauchen.
-   Besser: Prüfung auf Präfix `$CASH-` oder gemeinsame Konstante/Hilfsfunktion.
-2. **Dreifach duplizierter Outbound-Pattern-Block** (`CUSTOMER_OUTBOUND_REQUEST`,
+1. **Dreifach duplizierter Outbound-Pattern-Block** (`CUSTOMER_OUTBOUND_REQUEST`,
    `TRANSFER_DIRECT_DEBIT_INBOUND`, `TRANSFER_OUTBOUND/INSTANT`) – Kandidat für eine
    Hilfsfunktion `outboundTransfer(r, …)`. Leichte Unterschiede beim Kommentar
    (mit/ohne `cpname`) beachten.
-3. **`transform()` als lange `if`-Kaskade** – für viele neue Typen wäre eine
+2. **`transform()` als lange `if`-Kaskade** – für viele neue Typen wäre eine
    Handler-Tabelle `Record<string, (row) => Activity[]>` übersichtlicher.
-4. **`ImportPage.tsx` (~850 Zeilen)** mischt UI und Logik; `applySecurityMappings`,
+3. **`ImportPage.tsx` (~850 Zeilen)** mischt UI und Logik; `applySecurityMappings`,
    `activityStatus` und der Payload-Bau in `handleImport` ließen sich in ein
    testbares Modul (z. B. `importer.ts`) auslagern.
-5. **Sequenzieller Import**: ein SDK-Aufruf pro Aktivität – langsam bei großen
+4. **Sequenzieller Import**: ein SDK-Aufruf pro Aktivität – langsam bei großen
    Dateien; Fehler pro Aktivität werden nur gezählt, nicht angezeigt.
-6. **`saveMany` und `assets.create`** sind deklariert, aber ungenutzt.
-7. **Keine UI-Tests**; nur `transform()` ist abgesichert.
-8. **STOCKPERK-Zuordnung** ist O(n·m) und matcht nur über Symbol/Datum/Betrag –
+5. **`saveMany` und `assets.create`** sind deklariert, aber ungenutzt.
+6. **Keine UI-Tests**; nur `transform()` ist abgesichert.
+7. **STOCKPERK-Zuordnung** ist O(n·m) und matcht nur über Symbol/Datum/Betrag –
    bei zwei identischen Käufen am selben Tag gewinnt der erste.
-9. **`opencode.yml`** hat uneinheitliche Einrückung unter `steps:` (7 vs. 8 Leerzeichen)
+8. **`opencode.yml`** hat uneinheitliche Einrückung unter `steps:` (7 vs. 8 Leerzeichen)
    und ist dadurch kein gültiges YAML (Parser-Fehler in Zeile 25) – der Workflow kann so nicht laufen.

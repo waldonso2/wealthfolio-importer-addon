@@ -22,7 +22,7 @@ import Papa from "papaparse";
 import { loadSettings, saveSettings } from "./settings";
 import { SecurityMappingStep } from "./SecurityMappingStep";
 import type { SecurityInfo, SecurityMapping } from "./SecurityMappingStep";
-import { transform } from "./transform";
+import { isCashSymbol, transform } from "./transform";
 import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult, TrRow } from "./types";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ function applySecurityMappings(
   resolvedMappings: Map<string, SecurityMapping>,
 ): ActivityImportEx[] {
   return activities.map((a) => {
-    if (!a.symbol || a.symbol === "$CASH-EUR") return a;
+    if (!a.symbol || isCashSymbol(a.symbol)) return a;
     const m = resolvedMappings.get(a.symbol);
     if (!m || m === "custom") return a;
     return {
@@ -335,7 +335,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       // Collect unique securities (non-cash symbols)
       const secMap = new Map<string, SecurityInfo>();
       for (const a of result.activities) {
-        if (!a.symbol || a.symbol === "$CASH-EUR") continue;
+        if (!a.symbol || isCashSymbol(a.symbol)) continue;
         const existing = secMap.get(a.symbol);
         if (existing) {
           existing.count += 1;

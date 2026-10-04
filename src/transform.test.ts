@@ -3,7 +3,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import Papa from "papaparse";
 import { describe, expect, it } from "vitest";
-import { transform } from "./transform";
+import { isCashSymbol, transform } from "./transform";
 import type { AddonSettings, TrRow } from "./types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -457,6 +457,25 @@ describe("Unknown types", () => {
     );
     expect(activities).toHaveLength(0);
     expect(skipped[0].reason).toContain("Unknown category");
+  });
+});
+
+describe("Cash symbol", () => {
+  it("cash activities use the configured cash currency and are recognised as cash", () => {
+    const { activities } = transform(
+      [row({ category: "CASH", type: "CUSTOMER_INBOUND", amount: "100", currency: "CHF" })],
+      { ...CONFIG, cashCurrency: "CHF" },
+    );
+    expect(activities[0].symbol).toBe("$CASH-CHF");
+    expect(isCashSymbol(activities[0].symbol)).toBe(true);
+  });
+
+  it("isCashSymbol rejects securities and empty values", () => {
+    expect(isCashSymbol("$CASH-EUR")).toBe(true);
+    expect(isCashSymbol("$CASH-USD")).toBe(true);
+    expect(isCashSymbol("IE00BK5BQT80")).toBe(false);
+    expect(isCashSymbol("")).toBe(false);
+    expect(isCashSymbol(undefined)).toBe(false);
   });
 });
 
