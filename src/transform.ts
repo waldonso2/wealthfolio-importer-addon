@@ -46,6 +46,14 @@ function timeTag(dt: string): string {
   return t ? ` [${t}]` : "";
 }
 
+// Cash activities use a synthetic per-currency symbol ("$CASH-EUR", "$CASH-USD",
+// …) that must never be treated as a security, whatever the cash currency is.
+const CASH_SYMBOL_PREFIX = "$CASH-";
+
+export function isCashSymbol(symbol: string | null | undefined): boolean {
+  return !!symbol && symbol.startsWith(CASH_SYMBOL_PREFIX);
+}
+
 function makeCashAct(currency: string) {
   return function cashAct(
     accountId: string,
@@ -61,7 +69,7 @@ function makeCashAct(currency: string) {
       activityType: activityType as ActivityImport["activityType"],
       subtype: subtype ?? undefined,
       date,
-      symbol: `$CASH-${currency}`,
+      symbol: `${CASH_SYMBOL_PREFIX}${currency}`,
       quantity: "1",
       unitPrice: "1",
       amount: fmtAmt(amount),
