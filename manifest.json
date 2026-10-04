@@ -1,8 +1,8 @@
 {
   "id": "trade-republic-importer",
-  "name": "Trade Republic Importer",
-  "version": "1.3.4",
-  "description": "Import Trade Republic CSV exports into Wealthfolio. Splits cash and portfolio activities across two accounts and handles internal fund transfers automatically.",
+  "name": "Broker Importer (Trade Republic & Scalable Capital)",
+  "version": "1.4.0",
+  "description": "Import Trade Republic and Scalable Capital CSV exports into Wealthfolio. Detects the format automatically, splits cash and portfolio activities across two accounts per broker and handles internal fund transfers.",
   "author": "blastik",
   "main": "dist/addon.js",
   "sdkVersion": "3.7.0",
@@ -41,7 +41,7 @@
         { "name": "get", "isDeclared": true, "isDetected": false },
         { "name": "set", "isDeclared": true, "isDetected": false }
       ],
-      "purpose": "Persist addon configuration (account selection, transfer patterns) across sessions"
+      "purpose": "Persist addon configuration (account selection, transfer patterns, security mappings) across sessions"
     },
     {
       "category": "ui",
@@ -69,6 +69,6 @@
       "purpose": "Search for securities when mapping unrecognised tickers"
     }
   ],
-  "keywords": ["trade-republic", "importer", "csv"],
+  "keywords": ["trade-republic", "scalable-capital", "importer", "csv"],
   "license": "MIT"
 }

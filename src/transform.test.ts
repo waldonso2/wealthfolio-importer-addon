@@ -3,7 +3,8 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import Papa from "papaparse";
 import { describe, expect, it } from "vitest";
-import { isCashSymbol, transform } from "./transform";
+import { isCashSymbol } from "./common";
+import { transform } from "./transform";
 import type { AddonSettings, TrRow } from "./types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -12,6 +13,9 @@ const CONFIG: AddonSettings = {
   cashAccountId: "cash",
   cashCurrency: "EUR",
   portfolioAccountId: "portfolio",
+  scalableCashAccountId: "",
+  scalableCashCurrency: "EUR",
+  scalablePortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
 };

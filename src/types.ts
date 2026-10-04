@@ -26,6 +26,24 @@ export interface TrRow {
   [key: string]: string;
 }
 
+// One row of a Scalable Capital transaction export (German headers, ";"-separated,
+// decimal comma). All values are raw strings exactly as exported.
+export interface ScRow {
+  Datum: string;
+  Uhrzeit: string;
+  Typ: string;
+  Wertpapiername: string;
+  ISIN: string;
+  Wert: string;
+  Stück: string;
+  Buchungswährung: string;
+  Gebühren: string;
+  Steuern: string;
+  Bruttobetrag: string;
+  Notiz: string;
+  [key: string]: string;
+}
+
 export interface TransferPattern {
   iban?: string;
   keyword?: string;
@@ -41,6 +59,11 @@ export interface AddonSettings {
   cashAccountId: string;
   cashCurrency: string;
   portfolioAccountId: string;
+  // Scalable Capital uses its own cash/securities account pair so that users of
+  // both brokers don't mix the two into the same Wealthfolio accounts.
+  scalableCashAccountId: string;
+  scalableCashCurrency: string;
+  scalablePortfolioAccountId: string;
   transferPatterns: TransferPattern[];
   // ISIN -> resolved mapping, persisted so recurring imports of the same
   // security don't require re-mapping every time.

@@ -1,6 +1,7 @@
 # Trade Republic Importer
 
-A Wealthfolio addon that imports Trade Republic CSV exports into your portfolio.
+A Wealthfolio addon that imports Trade Republic and Scalable Capital CSV exports
+into your portfolio. The export format is detected automatically.
 
 ## Overview
 
@@ -19,15 +20,19 @@ accounts you select in Settings.
    - This addon is registered in Wealthfolio's community addon directory for
      discovery, but that tier doesn't include in-app one-click installation —
      it must always be installed manually as described above
-2. Go to **Trade Republic → Settings**
-3. Select your **Cash account** and **Portfolio account**
+2. Go to **Broker Import → Settings**
+3. Select the **Cash account** and **Portfolio account** for each broker you
+   use — Trade Republic and/or Scalable Capital each get their own pair, so the
+   two brokers never mix
 4. Optionally add **Transfer Patterns** to categorise recurring bank transfers
 
 ## Importing
 
-1. Export your transaction history from Trade Republic (app → Profile →
-   Documents → Transaction history → Export as CSV)
-2. Go to **Trade Republic → Import**
+1. Export your transaction history:
+   - Trade Republic: app → Profile → Documents → Transaction history → Export as CSV
+   - Scalable Capital: export your transactions as CSV
+     (`scalable_transactions_export_<date>_de.csv`)
+2. Go to **Broker Import → Import**
 3. Drop or select the CSV file
 4. Review the parsed activities — duplicates are detected automatically
 5. Map any unrecognised securities to their correct ticker (Security Mapping
@@ -53,6 +58,26 @@ accounts you select in Settings.
 | CASH / TRANSFER_INBOUND, TRANSFER_INSTANT_INBOUND       | DEPOSIT or TRANSFER (via transfer patterns)         |
 | CASH / TRANSFER_OUTBOUND, TRANSFER_INSTANT_OUTBOUND     | WITHDRAWAL or TRANSFER (via transfer patterns)      |
 | CASH / STOCKPERK                                        | Skipped (the corresponding BUY is imported instead) |
+
+## Supported Scalable Capital Types
+
+| Scalable `Typ`                                   | Wealthfolio activity                                          |
+| ------------------------------------------------ | ------------------------------------------------------------- |
+| Kauf                                             | BUY (funded by an internal cash → portfolio transfer)         |
+| Verkauf                                          | SELL (proceeds swept back to cash)                            |
+| Dividende                                        | DIVIDEND (net amount, swept back to cash)                     |
+| Dividende with `CANCEL-…`                        | Skipped together with the cancelled original dividend         |
+| Zinsen                                           | INTEREST                                                      |
+| Einlage                                          | DEPOSIT                                                       |
+| Entnahme                                         | WITHDRAWAL or TRANSFER (via transfer pattern keyword)         |
+| TAX (e.g. Vorabpauschale)                        | TAX                                                           |
+| Steuerrückerstattung                             | CREDIT (tax refund)                                           |
+| FEE                                              | FEE                                                           |
+| SWAP_OUT + security transfer out                 | SELL (fund liquidation)                                       |
+| Zero-value security transfer out + Dividende     | SELL (certificate redemption)                                 |
+| Security transfers (empty `Typ`)                 | Matching out/in legs (depot migration) skipped; others TRANSFER_IN/OUT |
+
+Scalable exports use local time (Europe/Berlin), which is converted to UTC.
 
 ## Transfer Patterns
 

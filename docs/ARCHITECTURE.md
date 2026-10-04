@@ -1,11 +1,12 @@
-# Architektur – Trade Republic Importer Addon
+# Architektur – Broker Importer Addon (Trade Republic & Scalable Capital)
 
 Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt und
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 1.3.4 (`manifest.json` / `package.json`).
-> Abschnitt 14 beschreibt die **geplante** Unterstützung von Scalable-Capital-CSV-Exporten (noch nicht umgesetzt).
+> Stand: Version 1.4.0 (`manifest.json` / `package.json`).
+> Abschnitte 1–13 beschreiben den Trade-Republic-Kern; **Abschnitt 14** beschreibt den
+> Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic.
 > Zeilenangaben sind Orientierung, keine Garantie – bei Abweichungen gilt der Code.
 
 ---
@@ -85,6 +86,9 @@ werden automatisch in `addon.js` gebündelt (→ `dependencies`).
 ```
 src/
 ├── addon.tsx               Einstiegspunkt: Sidebar, Routen, React-Root, Navigation
+├── formats.ts              Formaterkennung (Kopfzeile) + Parsen + Weiterleitung an den Transformer
+├── common.ts               Gemeinsame Helfer beider Transformer (makeCashAct, matchPattern, …)
+├── scalable.ts             Scalable Capital: ScRow[] → ActivityImportEx[] (Abschnitt 14)
 ├── ImportPage.tsx          Import-Wizard (Zustandsautomat, SDK-Aufrufe, Import-Schleife)
 ├── SecurityMappingStep.tsx UI-Schritt: ISIN → Ticker zuordnen
 ├── SettingsPage.tsx        Einstellungen: Konten, Transfer-Patterns, Security-Mappings
@@ -93,7 +97,8 @@ src/
 ├── types.ts                Gemeinsame Typen (TrRow, AddonSettings, …)
 ├── transform.test.ts       Unit- und Fixture-Tests für transform()
 └── __fixtures__/
-    └── tr-sample.csv       14 Zeilen, deckt alle unterstützten Typen ab
+    ├── tr-sample.csv       14 Zeilen, deckt alle unterstützten TR-Typen ab
+    └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
 ```
 
 ### Abhängigkeitsgraph
@@ -193,6 +198,10 @@ flowchart TD
    Aktivitäten nach `checkImport` wiedererkennt (siehe 6.3).
 
 ### 5.3 Hilfsfunktionen
+
+Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` und
+`scalable.ts` gemeinsam genutzt (`num` bleibt in `transform.ts`, Scalable hat `deNum`).
+Neu ist `sortAndNumber(activities)` für Sortierung und `lineNumber`-Vergabe.
 
 | Funktion | Zweck |
 |---|---|
@@ -373,6 +382,9 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
   cashAccountId: string;          // Wealthfolio-Konto vom Typ CASH
   cashCurrency: string;           // Währung des Cash-Kontos (Default "EUR")
   portfolioAccountId: string;     // Wealthfolio-Konto vom Typ SECURITIES
+  scalableCashAccountId: string;      // seit 1.4.0: eigenes Kontenpaar für Scalable Capital
+  scalableCashCurrency: string;
+  scalablePortfolioAccountId: string;
   transferPatterns: TransferPattern[];            // { iban?, keyword?, label, destinationAccountId? }
   securityMappings: Record<string, SecurityMapping>; // ISIN → Ticker | "custom"
 }
@@ -518,8 +530,8 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 
 ## 14. Geplante Erweiterung: Scalable-Capital-CSV als Eingangsformat
 
-> **Status: Planung, noch nicht umgesetzt.** Dieser Abschnitt beschreibt alle
-> notwendigen Änderungen, um zusätzlich Transaktionsexporte von **Scalable Capital**
+> **Status: umgesetzt in Version 1.4.0.** Dieser Abschnitt wurde vor der Umsetzung als
+> Plan geschrieben und beschreibt alle Änderungen, um zusätzlich Transaktionsexporte von **Scalable Capital**
 > (Datei `scalable_transactions_export_<Datum>_de.csv`) zu importieren.
 > Grundlage ist ein echter Export mit 240 Zeilen (2020–2026), dessen Struktur
 > unten zusammengefasst ist. Personenbezogene Daten aus diesem Export (Depot-IDs,
@@ -530,6 +542,8 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 **[?]** = Annahme, die vor der Umsetzung bestätigt werden sollte.
 
 ### 14.1 Entscheidungen vor der Umsetzung
+
+Alle vier Empfehlungen wurden bestätigt und so umgesetzt.
 
 | # | Frage | Empfehlung | Begründung |
 |---|---|---|---|
@@ -593,7 +607,9 @@ Alle Zeit-Versätze (`addSec`) und `transferGroupId`-Regeln aus 5.5 gelten unver
 | unbekannter `Typ` | – | → `skipped` („Unknown Scalable type") | Unknown category | **[=]** |
 
 **[?] Offene Einzelfälle aus dem Beispiel:**
-- `Einlage` 142,92 € mit `…-EUR-DISTRIBUTION-RKN` im Zuge des Depotumzugs: Plan = normale `DEPOSIT`. Falls das eine Ausschüttung ist, wäre `DIVIDEND` richtiger.
+- `Einlage` 142,92 € mit `…-EUR-DISTRIBUTION-RKN` im Zuge des Depotumzugs: umgesetzt als normale `DEPOSIT`. **Weiterhin offen** – falls das eine Ausschüttung ist, wäre `DIVIDEND` richtiger.
+- Rückzahlung eines Zertifikats (`Wert = 0` + `Dividende`): umgesetzt als `SELL`; die Erkennung beruht auf einem einzigen Beispiel.
+- `instrumentType` wird für Scalable-Wertpapiere nicht gesetzt (keine Anlageklasse im Export); er kommt aus dem Security-Mapping. Bei „Custom"-Mapping bleibt er leer.
 - `Entnahme`/`Einlage` gleichen Betrags an aufeinanderfolgenden Tagen ohne `SWITCH-` (z. B. 2.000 € am 14./15.08.2025) bleiben echte Ein-/Auszahlungen.
 
 ### 14.4 Wertpapierüberträge (leerer `Typ`) – Verrechnungsregel [NEU]
@@ -664,10 +680,22 @@ und die Duplikaterkennung über `checkImport`.
    Beträge am selben Tag (z. B. mehrere `TAX`-Zeilen um 01:00) unterscheidbar bleiben.
 5. Alle Invarianten aus 5.5 gelten weiter.
 
-### 14.7 Umsetzungsreihenfolge
+### 14.7 Umsetzungsreihenfolge (erledigt)
 
 1. `common.ts` herauslösen; TR-Tests müssen unverändert grün bleiben.
 2. `scalable.ts` + Fixture + Tests (testgetrieben, ohne UI).
 3. `formats.ts` + `ImportPage.tsx` anbinden.
 4. Settings (Entscheidung B) + Texte/Manifest (Entscheidung D).
 5. Doku (dieser Abschnitt wird zur Ist-Beschreibung), CHANGELOG, Version 1.4.0.
+
+### 14.8 Ergebnis der Umsetzung
+
+- Probelauf mit dem echten Export (240 Zeilen): 506 Aktivitäten, 28 übersprungene Zeilen
+  (24 Umzugs-/Korrekturzeilen, 2 Dividenden-Storno, 2 Cash-Teil des Umzugs); kein
+  Depotbestand wird negativ.
+- Tests: `src/scalable.test.ts` (29 Tests: Parser, Zeitzone inkl. Sommer/Winter, jeder
+  Typ, Storno, Umzug, `SWAP_OUT`, Rückzahlung, Formaterkennung, Fixture-Integration).
+  Die Tests laufen unabhängig von der Zeitzone des Rechners.
+- Rezept für neue Scalable-Typen: neuen `case` in Pass 4 von `transformScalable`
+  ergänzen (bzw. einen eigenen Pass, wenn Zeilen paarweise verrechnet werden müssen),
+  Zeile in `scalable-sample.csv` und Zähler im Fixture-Test anpassen.

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.4.0] - 2026-10-04
+
+### Added
+
+- Scalable Capital transaction exports (`scalable_transactions_export_<date>_de.csv`) can now be imported alongside Trade Republic. The format is detected from the CSV header; Scalable uses its own cash/securities account pair, configured in Settings.
+- Supported Scalable types: Kauf, Verkauf, Dividende, Zinsen, Einlage, Entnahme (with transfer-pattern keywords), TAX, Steuerrückerstattung, FEE, fund liquidations (SWAP_OUT) and certificate redemptions. Dividend cancellations, depot-migration transfers and the migration's cash leg are netted and listed as skipped, so holdings and cost basis stay correct. Times are converted from Europe/Berlin to UTC.
+
+### Changed
+
+- Addon name, sidebar label ("Broker Import") and texts now cover both brokers. The addon `id` is unchanged, so existing installations and settings keep working.
+- Shared activity helpers moved from `transform.ts` to `common.ts` (no behavior change for Trade Republic imports).
+
 ## [1.3.4] - 2026-10-04
 
 ### Fixed
