@@ -84,3 +84,45 @@ export function sortAndNumber(activities: ActivityImportEx[]): void {
     a.lineNumber = i + 1;
   });
 }
+
+// ── Exact decimal arithmetic for trade amounts ──────────────────────────────
+// Wealthfolio fingerprints activities (idempotency key) with the exact decimal
+// `amount`. For trades created without an amount it derives the final cash
+// (quantity × unitPrice ± fee) and stores that; checkImport, however, hashes
+// the amount exactly as submitted. Trades must therefore carry that same
+// derived value, computed without floating-point error, or re-imports are never
+// recognised as duplicates.
+
+function toScaled(s: string): { n: bigint; scale: number } {
+  const t = s.trim().replace(/^\+/, "");
+  const neg = t.startsWith("-");
+  const [int = "0", frac = ""] = (neg ? t.slice(1) : t).split(".");
+  const n = BigInt((int || "0") + frac);
+  return { n: neg ? -n : n, scale: frac.length };
+}
+
+function fromScaled(n: bigint, scale: number): string {
+  const neg = n < 0n;
+  const digits = (neg ? -n : n).toString().padStart(scale + 1, "0");
+  const int = digits.slice(0, digits.length - scale);
+  const frac = scale ? digits.slice(digits.length - scale).replace(/0+$/, "") : "";
+  return (neg ? "-" : "") + int + (frac ? `.${frac}` : "");
+}
+
+function align(a: { n: bigint; scale: number }, scale: number): bigint {
+  return a.n * 10n ** BigInt(scale - a.scale);
+}
+
+// Final cash Wealthfolio derives for a trade: BUY = gross + fee, SELL = gross − fee,
+// with gross = |quantity| × |unitPrice|. Inputs and output are decimal strings.
+export function tradeFinalCash(activityType: "BUY" | "SELL", quantity: string, unitPrice: string, fee: string): string {
+  const q = toScaled(quantity);
+  const p = toScaled(unitPrice);
+  const f = toScaled(fee || "0");
+  const abs = (x: bigint) => (x < 0n ? -x : x);
+  const gross = { n: abs(q.n) * abs(p.n), scale: q.scale + p.scale };
+  const scale = Math.max(gross.scale, f.scale);
+  const g = align(gross, scale);
+  const fe = abs(align(f, scale));
+  return fromScaled(activityType === "BUY" ? g + fe : g - fe, scale);
+}

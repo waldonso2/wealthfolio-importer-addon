@@ -272,6 +272,12 @@ Weitere Konventionen:
    eindeutig bleiben.
 6. Unbekanntes wird **nie stillschweigend verworfen**, sondern in `skipped` mit
    `reason` gemeldet (Ausnahme: `CASH/STOCKPERK`, das im BUY-Zweig steckt).
+7. **`BUY`/`SELL` tragen immer `amount = tradeFinalCash(...)`** (`common.ts`): exakt
+   `Menge × Stückpreis + Gebühr` (BUY) bzw. `− Gebühr` (SELL), mit BigInt statt Float
+   berechnet. Wealthfolio bildet den Duplikat-Fingerabdruck (`idempotencyKey`) aus dem
+   exakten `amount`. Fehlt er, leitet Wealthfolio ihn beim Anlegen genau so ab und
+   speichert ihn – `checkImport` hasht aber den eingereichten Wert. Ohne `amount`
+   würden Trades bei einem erneuten Import nie als Duplikat erkannt und doppelt angelegt.
 
 ---
 

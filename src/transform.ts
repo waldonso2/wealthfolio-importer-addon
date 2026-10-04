@@ -1,4 +1,4 @@
-import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag } from "./common";
+import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag, tradeFinalCash } from "./common";
 import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult, TrRow } from "./types";
 
 function num(s: string | undefined | null): number {
@@ -67,6 +67,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
           quantity: r.shares,
           unitPrice: r.price,
           fee: buyFeeTotal ? fmtAmt(buyFeeTotal) : "0",
+          amount: tradeFinalCash("BUY", r.shares, r.price, buyFeeTotal ? fmtAmt(buyFeeTotal) : "0"),
           currency: quoteCcy,
           comment: `${r.name} - Stockperk gift buy (funded by TR, not own funds)${timeTag(dt)}`,
           isValid: true,
@@ -110,6 +111,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         quantity: r.shares,
         unitPrice: r.price,
         fee: buyFeeTotal ? fmtAmt(buyFeeTotal) : "0",
+        amount: tradeFinalCash("BUY", r.shares, r.price, buyFeeTotal ? fmtAmt(buyFeeTotal) : "0"),
         currency: quoteCcy,
         comment: (desc ? `${r.name} - ${desc}` : r.name) + timeTag(dt),
         isValid: true,
@@ -138,6 +140,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         quantity: r.shares,
         unitPrice: r.price,
         fee: sellFeeTotal ? fmtAmt(sellFeeTotal) : "0",
+        amount: tradeFinalCash("SELL", r.shares, r.price, sellFeeTotal ? fmtAmt(sellFeeTotal) : "0"),
         currency: quoteCcy,
         comment: (desc ? `${r.name} - ${desc}` : r.name) + timeTag(dt),
         isValid: true,
