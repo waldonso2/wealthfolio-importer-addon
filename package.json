@@ -1,6 +1,6 @@
 {
   "name": "broker-importer-addon",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Import Trade Republic and Scalable Capital CSV exports into Wealthfolio",
   "type": "module",
   "main": "dist/addon.js",

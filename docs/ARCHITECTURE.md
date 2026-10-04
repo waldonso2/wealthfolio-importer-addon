@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.0.1 (`manifest.json` / `package.json`).
+> Stand: Version 2.0.2 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Trade-Republic-Kern; **Abschnitt 14** beschreibt den
 > Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic.
 > Zeilenangaben sind Orientierung, keine Garantie – bei Abweichungen gilt der Code.
