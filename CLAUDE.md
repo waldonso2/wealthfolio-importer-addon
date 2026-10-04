@@ -1,4 +1,4 @@
-# Trade Republic Importer Addon
+# Broker Importer Addon
 
 Wealthfolio addon that maps Trade Republic and Scalable Capital CSV exports to Wealthfolio activities. `src/formats.ts` detects the format from the CSV header and dispatches to `src/transform.ts` (Trade Republic) or `src/scalable.ts` (Scalable Capital); shared helpers live in `src/common.ts`. The React pages are thin wrappers that call the SDK.
 
@@ -44,7 +44,7 @@ pnpm type-check       # tsc --noEmit
 pnpm test             # vitest run (once)
 pnpm test:watch       # vitest (watch mode)
 pnpm build            # vite build → dist/addon.js
-pnpm bundle           # build + zip → dist/trade-republic-importer-addon.zip (for local install testing)
+pnpm bundle           # build + zip → dist/broker-importer-addon.zip (for local install testing)
 pnpm dev              # vite build --watch
 ```
 
@@ -56,7 +56,7 @@ Once a bump is agreed, apply it by bumping the `version` field in **both** `mani
 
 1. Run type-check, tests, and `pnpm bundle`
 2. Detect the new version tag doesn't exist yet
-3. Create a GitHub release `v{version}` with the changelog section, `dist/trade-republic-importer-addon.zip` (the installable package), and `dist/addon.js` attached
+3. Create a GitHub release `v{version}` with the changelog section, `dist/broker-importer-addon.zip` (the installable package), and `dist/addon.js` attached
 
 This addon is registered in the wealthfolio-addons community registry as an unverified directory listing (discovery only, no in-app one-click install) — end users always install manually from the GitHub release zip, per the flow documented in `README.md`.
 
