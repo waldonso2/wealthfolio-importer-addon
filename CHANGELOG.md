@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.2] - 2026-10-04
+
+### Fixed
+
+- Re-importing a file recognised every existing activity as a duplicate except BUY and SELL, so trades were imported a second time. Wealthfolio's duplicate fingerprint includes the trade's exact final cash amount, which it derives (quantity × unit price ± fee) when an activity is created without one, while `checkImport` hashes the amount as submitted. Trades now carry exactly that derived amount, so already imported trades — including those from earlier versions — are detected as duplicates.
+
 ## [2.0.1] - 2026-10-04
 
 ### Changed

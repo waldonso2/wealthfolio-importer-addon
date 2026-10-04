@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.0.1 (`manifest.json` / `package.json`).
+> Stand: Version 2.0.2 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Trade-Republic-Kern; **Abschnitt 14** beschreibt den
 > Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic.
 > Zeilenangaben sind Orientierung, keine Garantie – bei Abweichungen gilt der Code.
@@ -272,6 +272,12 @@ Weitere Konventionen:
    eindeutig bleiben.
 6. Unbekanntes wird **nie stillschweigend verworfen**, sondern in `skipped` mit
    `reason` gemeldet (Ausnahme: `CASH/STOCKPERK`, das im BUY-Zweig steckt).
+7. **`BUY`/`SELL` tragen immer `amount = tradeFinalCash(...)`** (`common.ts`): exakt
+   `Menge × Stückpreis + Gebühr` (BUY) bzw. `− Gebühr` (SELL), mit BigInt statt Float
+   berechnet. Wealthfolio bildet den Duplikat-Fingerabdruck (`idempotencyKey`) aus dem
+   exakten `amount`. Fehlt er, leitet Wealthfolio ihn beim Anlegen genau so ab und
+   speichert ihn – `checkImport` hasht aber den eingereichten Wert. Ohne `amount`
+   würden Trades bei einem erneuten Import nie als Duplikat erkannt und doppelt angelegt.
 
 ---
 

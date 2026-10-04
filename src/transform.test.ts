@@ -85,6 +85,8 @@ describe("BUY", () => {
     expect(buy.accountId).toBe("portfolio");
     expect(buy.symbol).toBe("AAPL");
     expect(buy.fee).toBe("1");
+    // exact final cash (2 × 150 + 1), so checkImport can match re-imports
+    expect(buy.amount).toBe("301");
     expect(buy.isDraft).toBe(false);
   });
 
@@ -147,6 +149,8 @@ describe("SELL", () => {
     const sell = activities.find((a) => a.activityType === "SELL")!;
     expect(sell.accountId).toBe("portfolio");
     expect(sell.fee).toBe("2");
+    // exact final cash (2 × 160 − 2), so checkImport can match re-imports
+    expect(sell.amount).toBe("318");
     expect(sell.isDraft).toBe(false);
 
     const out = activities.find((a) => a.activityType === "TRANSFER_OUT")!;

@@ -1,4 +1,4 @@
-import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag } from "./common";
+import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag, tradeFinalCash } from "./common";
 import type { ActivityImportEx, AddonSettings, ScRow, SkippedRow, TransformResult } from "./types";
 
 // Scalable Capital transaction export → Wealthfolio activities.
@@ -145,6 +145,8 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
 
   const securitySell = (r: ScRow, dt: string, shares: string, proceeds: number, comment: string, groupId: string) => {
     const n = deNum(shares);
+    const quantity = qty(shares);
+    const unitPrice = n ? fmtAmt(proceeds / n) : "0";
     activities.push({
       accountId: portfolioAccountId,
       activityType: "SELL",
@@ -152,9 +154,10 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       symbol: r.ISIN,
       symbolName: r.Wertpapiername,
       quoteCcy: r.Buchungswährung || cashCurrency,
-      quantity: qty(shares),
-      unitPrice: n ? fmtAmt(proceeds / n) : "0",
+      quantity,
+      unitPrice,
       fee: "0",
+      amount: tradeFinalCash("SELL", quantity, unitPrice, "0"),
       currency: r.Buchungswährung || cashCurrency,
       comment: comment + timeTag(dt),
       isValid: true,
@@ -296,6 +299,7 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
           quantity: qty(r.Stück),
           unitPrice: shares ? fmtAmt(brutto / shares) : "0",
           fee: feeTotal ? fmtAmt(feeTotal) : "0",
+          amount: tradeFinalCash("BUY", qty(r.Stück), shares ? fmtAmt(brutto / shares) : "0", feeTotal ? fmtAmt(feeTotal) : "0"),
           currency: ccy,
           comment: `${r.Wertpapiername}${timeTag(dt)}`,
           isValid: true,
@@ -318,6 +322,7 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
           quantity: qty(r.Stück),
           unitPrice: shares ? fmtAmt(brutto / shares) : "0",
           fee: feeTotal ? fmtAmt(feeTotal) : "0",
+          amount: tradeFinalCash("SELL", qty(r.Stück), shares ? fmtAmt(brutto / shares) : "0", feeTotal ? fmtAmt(feeTotal) : "0"),
           currency: ccy,
           comment: `${r.Wertpapiername}${timeTag(dt)}`,
           isValid: true,

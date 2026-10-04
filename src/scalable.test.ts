@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
+import { tradeFinalCash } from "./common";
 import { detectFormat, parseAndTransform } from "./formats";
 import { berlinToIso, deNum, transformScalable } from "./scalable";
 import type { ActivityImportEx, AddonSettings, ScRow } from "./types";
@@ -320,5 +321,34 @@ describe("Scalable CSV fixture integration", () => {
     expect(activities.map((a) => a.lineNumber)).toEqual(activities.map((_, i) => i + 1));
     const dates = activities.map((a) => new Date(a.date as string).getTime());
     expect([...dates].sort((a, b) => a - b)).toEqual(dates);
+  });
+});
+
+describe("trade amount (idempotency)", () => {
+  // Wealthfolio stores quantity × unitPrice ± fee as the trade amount and hashes
+  // it exactly; checkImport only finds a duplicate when the submitted amount is
+  // that same decimal value.
+  it("tradeFinalCash computes exact decimals without float error", () => {
+    expect(tradeFinalCash("BUY", "12.933359", "38.659999", "0")).toBe("500.003646006641");
+    expect(tradeFinalCash("BUY", "2.0000000000", "100.000000", "1")).toBe("201");
+    expect(tradeFinalCash("SELL", "117", "51.82", "266.2")).toBe("5796.74");
+    expect(tradeFinalCash("BUY", "0.1", "0.2", "0")).toBe("0.02");
+    expect(tradeFinalCash("SELL", "-5", "-10", "-1")).toBe("49");
+  });
+
+  it("Scalable Kauf/Verkauf carry the derived amount", () => {
+    const { activities } = transformScalable(
+      [
+        row({ Typ: "Kauf", ISIN: "X1", Wert: "-500", Stück: "12,933359", Gebühren: "0", Steuern: "0", Bruttobetrag: "500", Notiz: "O1" }),
+        row({ Typ: "Verkauf", ISIN: "X1", Wert: "5796,74", Stück: "117", Gebühren: "0,99", Steuern: "265,21", Bruttobetrag: "6062,94", Notiz: "O2" }),
+      ],
+      CONFIG,
+    );
+    const buy = activities.find((a) => a.activityType === "BUY")!;
+    const sell = activities.find((a) => a.activityType === "SELL")!;
+    expect(buy.amount).toBe(tradeFinalCash("BUY", String(buy.quantity), String(buy.unitPrice), String(buy.fee)));
+    expect(Math.abs(Number(buy.amount) - 500)).toBeLessThan(0.005);
+    expect(sell.amount).toBe(tradeFinalCash("SELL", String(sell.quantity), String(sell.unitPrice), String(sell.fee)));
+    expect(Math.abs(Number(sell.amount) - 5796.74)).toBeLessThan(0.005);
   });
 });
