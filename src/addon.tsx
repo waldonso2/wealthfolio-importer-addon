@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { AddonContext, AddonRouteRenderContext } from "@wealthfolio/addon-sdk";
 import { ImportPage } from "./ImportPage";
 import { SettingsPage } from "./SettingsPage";
+import { UpdateBanner } from "./UpdateBanner";
 
 const ADDON_ID = "broker-importer";
 
@@ -10,6 +11,7 @@ function ImportWrapper({ ctx }: { ctx: AddonContext }) {
   return (
     <div className="space-y-0">
       <Nav ctx={ctx} />
+      <UpdateBanner ctx={ctx} />
       <ImportPage ctx={ctx} />
     </div>
   );
@@ -19,6 +21,7 @@ function SettingsWrapper({ ctx }: { ctx: AddonContext }) {
   return (
     <div className="space-y-0">
       <Nav ctx={ctx} />
+      <UpdateBanner ctx={ctx} />
       <SettingsPage ctx={ctx} />
     </div>
   );

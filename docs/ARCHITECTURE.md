@@ -4,9 +4,10 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.0.2 (`manifest.json` / `package.json`).
-> Abschnitte 1–13 beschreiben den Trade-Republic-Kern; **Abschnitt 14** beschreibt den
-> Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic.
+> Stand: Version 2.1.0 (`manifest.json` / `package.json`).
+> Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
+> beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
+> **Abschnitt 15** listet alle Änderungen seit Version 1.3.3.
 > Zeilenangaben sind Orientierung, keine Garantie – bei Abweichungen gilt der Code.
 
 ---
@@ -14,8 +15,10 @@ für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 ## 1. Zweck und Kontext
 
 Das Addon läuft **innerhalb von Wealthfolio** (Desktop-App für Portfolio-Tracking)
-und importiert die CSV-Transaktionshistorie von **Trade Republic (TR)** als
-Wealthfolio-Aktivitäten (`BUY`, `SELL`, `DEPOSIT`, `DIVIDEND`, `TRANSFER_IN/OUT`, …).
+und importiert CSV-Transaktionsexporte von Brokern als Wealthfolio-Aktivitäten
+(`BUY`, `SELL`, `DEPOSIT`, `DIVIDEND`, `TRANSFER_IN/OUT`, …). Unterstützt werden
+**Trade Republic (TR)** und **Scalable Capital**; das Format wird automatisch an der
+Kopfzeile der Datei erkannt.
 
 ```mermaid
 flowchart LR
@@ -23,8 +26,12 @@ flowchart LR
     subgraph WF[Wealthfolio Host-App]
       subgraph SB[Addon-Sandbox iframe]
         UI[React-Seiten<br/>ImportPage / SettingsPage]
-        T[transform.ts<br/>reine Mapping-Logik]
-        UI --> T
+        F[formats.ts<br/>Formaterkennung]
+        T[transform.ts<br/>Trade Republic]
+        SC[scalable.ts<br/>Scalable Capital]
+        UI --> F
+        F --> T
+        F --> SC
       end
       API[(Addon-SDK API<br/>ctx.api.*)]
       DB[(Wealthfolio DB)]
@@ -39,8 +46,9 @@ wird (Konfiguration, Aktivitäten), geht über die vom Host bereitgestellte
 
 ### Kernidee: Zwei-Konten-Modell
 
-TR führt Geld und Wertpapiere in *einem* Konto; Wealthfolio trennt sie. Der Nutzer
-wählt daher zwei Wealthfolio-Konten:
+Beide Broker führen Geld und Wertpapiere in *einem* Konto; Wealthfolio trennt sie. Der
+Nutzer wählt daher **pro Broker** zwei Wealthfolio-Konten (für Scalable Capital
+`scalableCashAccountId` / `scalablePortfolioAccountId`, siehe 8.1):
 
 | Konto | Typ in Wealthfolio | Erhält |
 |---|---|---|
@@ -60,7 +68,7 @@ zwischen ihnen ein **TRANSFER_OUT/TRANSFER_IN-Paar** (Details in Abschnitt 5).
 | UI | React 19 + `@wealthfolio/ui` (shadcn-artige Komponenten) + Tailwind 4 | React/UI kommen **vom Host** |
 | CSV-Parsing | `papaparse` | einzige echte Laufzeit-Abhängigkeit, wird gebündelt |
 | Build | Vite 8 (Library-Mode, ES-Modul) | `vite.config.ts` |
-| Tests | Vitest 4 | nur `transform.ts` ist getestet |
+| Tests | Vitest 4 | getestet sind die Transformer (`transform.ts`, `scalable.ts`), `formats.ts` und `common.ts`; die UI nicht |
 | Runtime | Node 24, pnpm 11 | `.tool-versions` |
 
 **Build-Ausgabe:** genau eine Datei `dist/addon.js`. Host-Abhängigkeiten werden in
@@ -90,12 +98,16 @@ src/
 ├── common.ts               Gemeinsame Helfer beider Transformer (makeCashAct, matchPattern, …)
 ├── scalable.ts             Scalable Capital: ScRow[] → ActivityImportEx[] (Abschnitt 14)
 ├── ImportPage.tsx          Import-Wizard (Zustandsautomat, SDK-Aufrufe, Import-Schleife)
+├── UpdateBanner.tsx        Hinweis auf neue Version (über Import und Settings)
+├── updateCheck.ts          Prüft GitHub-Releases auf eine neuere Version (4.2)
 ├── SecurityMappingStep.tsx UI-Schritt: ISIN → Ticker zuordnen
 ├── SettingsPage.tsx        Einstellungen: Konten, Transfer-Patterns, Security-Mappings
 ├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets)
-├── transform.ts            ★ Reine Geschäftslogik: TrRow[] → ActivityImportEx[]
-├── types.ts                Gemeinsame Typen (TrRow, AddonSettings, …)
-├── transform.test.ts       Unit- und Fixture-Tests für transform()
+├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[]
+├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, …)
+├── transform.test.ts       Unit- und Fixture-Tests für transform() (37 Tests)
+├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
+├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 └── __fixtures__/
     ├── tr-sample.csv       14 Zeilen, deckt alle unterstützten TR-Typen ab
     └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
@@ -108,30 +120,42 @@ flowchart TD
     addon[addon.tsx] --> IP[ImportPage.tsx]
     addon --> SP[SettingsPage.tsx]
     IP --> SMS[SecurityMappingStep.tsx]
-    IP --> TR[transform.ts]
+    IP --> FO[formats.ts]
+    IP --> CM[common.ts]
+    FO --> TR[transform.ts]
+    FO --> SC[scalable.ts]
+    TR --> CM
+    SC --> CM
     IP --> ST[settings.ts]
     SP --> ST
     IP --> TY[types.ts]
     SP --> TY
     SMS --> TY
     TR --> TY
+    SC --> TY
     ST --> TY
     TEST[transform.test.ts] --> TR
     TEST --> FIX[__fixtures__/tr-sample.csv]
+    TEST2[scalable.test.ts] --> SC
+    TEST2 --> FO
+    TEST2 --> FIX2[__fixtures__/scalable-sample.csv]
 ```
 
 ### Schichten
 
 | Schicht | Dateien | Regeln |
 |---|---|---|
-| **Domänenlogik** | `transform.ts`, `types.ts` | Rein, synchron, kein React, kein `ctx`. Vollständig unit-testbar. |
+| **Domänenlogik** | `transform.ts`, `scalable.ts`, `common.ts`, `formats.ts`, `types.ts` | Rein, synchron, kein React, kein `ctx`. Vollständig unit-testbar. `formats.ts` ist die einzige Stelle, die CSV parst. |
 | **Persistenz** | `settings.ts` | Einzige Stelle, die `ctx.api.secrets` nutzt. |
-| **Orchestrierung + UI** | `ImportPage.tsx` | Ruft `transform()`, SDK-APIs, steuert den Wizard. Enthält noch Logik (Mapping-Anwendung, Import-Schleife). |
+| **Orchestrierung + UI** | `ImportPage.tsx` | Ruft `parseAndTransform()`, SDK-APIs, steuert den Wizard. Enthält noch Logik (Mapping-Anwendung, Import-Schleife). |
+| **Update-Hinweis** | `updateCheck.ts`, `UpdateBanner.tsx` | Einzige Stelle mit Netzwerkzugriff (`ctx.api.network`) und Addon-Speicher (`ctx.api.storage`), siehe 4.2. |
 | **Reine UI** | `SecurityMappingStep.tsx`, `SettingsPage.tsx` | Formulare / Darstellung; Mapping-Step ist zustandslos bzgl. Persistenz (Callbacks). |
 | **Bootstrap** | `addon.tsx` | Registrierung beim Host; keine Fachlogik. |
 
-**Leitprinzip:** Neue *Mapping-Regeln* gehören nach `transform.ts` (mit Tests), nicht
-in die React-Komponenten.
+**Leitprinzip:** Neue *Mapping-Regeln* gehören in den Transformer des jeweiligen Brokers
+(`transform.ts` bzw. `scalable.ts`, mit Tests), broker-übergreifende Helfer nach
+`common.ts`, neue Broker-Formate über `formats.ts` (Rezept 12.6) – nicht in die
+React-Komponenten.
 
 ---
 
@@ -150,6 +174,7 @@ Default-Export `enable(ctx)` auf.
    und danach nur `root.render(...)`. Mehrere Roots auf demselben Knoten brechen das
    Rendering (siehe CHANGELOG 1.3.1). **Bei neuen Routen dieses Muster beibehalten.**
 4. **`Nav`**: einfache Tab-Leiste, navigiert über `ctx.api.navigation.navigate(path)`.
+   Darunter steht auf beiden Seiten `UpdateBanner` (4.2).
 5. **`ctx.onDisable`**: Root unmounten, Sidebar-Eintrag entfernen.
 
 Jede Seite bekommt `ctx` als Prop; es gibt keinen globalen State/Context-Provider.
@@ -168,9 +193,42 @@ ist ein Bruch:** Wealthfolio behandelt das Addon dann als neues Addon. Das alte 
 deinstalliert werden, und die Einstellungen (Konten, Transfer-Patterns, Security-Mappings)
 müssen neu eingerichtet werden, weil `secrets` an die `id` gebunden sind.
 
+### 4.2 Updates und Update-Hinweis
+
+**Wie Wealthfolio Addons aktualisiert** (geprüft am Wealthfolio-Quellcode,
+`crates/core/src/addons/service.rs`):
+- Update-Prüfung und -Installation laufen **nur** über den Wealthfolio-Store
+  (`https://wealthfolio.app/api/addons/update-check?addonId=…`). Eine eigene
+  Update-Adresse kann ein Addon nicht angeben, und es kann sich nicht selbst ersetzen.
+  Dieses Addon ist dort nicht gelistet; Aufnahme laut Wealthfolio-Doku über
+  support@wealthfolio.app.
+- **„Install from File"** ersetzt nur den Ordner `addons/<id>/` (mit Sicherung während des
+  Austauschs). Ein Addon mit gleicher `id` wird überschrieben, Deinstallieren ist nicht nötig.
+- Die **Einstellungen** liegen im Schlüsselbund des Betriebssystems unter
+  `addon:<id>:config` (`ctx.api.secrets`) und bleiben bei „Install from File" erhalten.
+  `ctx.api.storage` (Update-Cache, siehe unten) übersteht Updates und wird beim
+  Deinstallieren gelöscht.
+
+**Update-Hinweis im Addon (seit 2.1.0):**
+- `updateCheck.ts` fragt `https://api.github.com/repos/waldonso2/wealthfolio-importer-addon/releases/latest`
+  über `ctx.api.network.request` ab – **höchstens einmal pro 24 h**; das Ergebnis liegt
+  in `ctx.api.storage` unter `update-check`.
+- Ist `tag_name` neuer als die installierte Version (`version` aus `manifest.json`, beim
+  Build eingebunden), zeigt `UpdateBanner` Version, Download-Adresse der ZIP-Datei und
+  Release-Seite.
+- Die Sandbox des Addons (`<iframe sandbox="allow-scripts">`) erlaubt weder neue Fenster
+  noch das Öffnen externer Seiten. Die Adresse wird deshalb **zum Kopieren** in einem
+  Textfeld angezeigt, nicht als Link.
+- Fehler (keine Freigabe für `api.github.com`, kein Netz, GitHub-Fehler) führen nie zu
+  einer Fehlermeldung, sondern nur dazu, dass kein Hinweis erscheint.
+- Voraussetzung im Manifest: Berechtigung `network` → `request` und
+  `"network": { "allowedHosts": ["api.github.com"] }`. Der Nutzer gibt den Host bei der
+  Installation frei. Wird das Repo umbenannt oder verschoben, `RELEASES_API_URL` in
+  `updateCheck.ts` anpassen; der Name des ZIP-Assets steht dort ebenfalls.
+
 ---
 
-## 5. Domänenlogik: `transform.ts`
+## 5. Domänenlogik Trade Republic: `transform.ts` (Scalable: Abschnitt 14)
 
 ### 5.1 Signatur
 
@@ -215,17 +273,18 @@ flowchart TD
 
 Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` und
 `scalable.ts` gemeinsam genutzt (`num` bleibt in `transform.ts`, Scalable hat `deNum`).
-Neu ist `sortAndNumber(activities)` für Sortierung und `lineNumber`-Vergabe.
 
 | Funktion | Zweck |
 |---|---|
-| `num(s)` | `parseFloat` mit `""`/`null` → `0` |
+| `num(s)` (nur `transform.ts`) | `parseFloat` mit `""`/`null` → `0` |
 | `fmtAmt(n)` | Absolutwert, max. 6 Nachkommastellen, ohne Trailing Zeros, als String |
 | `addSec(iso, s)` | Zeitstempel um *s* Sekunden verschieben (Reihenfolge innerhalb eines Vorgangs) |
-| `timeTag(dt)` | Hängt ` [HH:MM:SS.ffffff]` an Kommentare – macht sonst identische Aktivitäten unterscheidbar, weil Wealthfolios Idempotenz-Key das Datum nicht berücksichtigt |
+| `timeTag(dt)` | Hängt ` [HH:MM:SS.ffffff]` an Kommentare. Wealthfolios Duplikat-Fingerabdruck berücksichtigt nur den **Tag**, nicht die Uhrzeit, wohl aber den Kommentar (siehe 6.4) – so bleiben gleichartige Buchungen am selben Tag unterscheidbar |
 | `matchPattern(iban, desc, patterns)` | Transfer-Pattern suchen: (1) IBAN exakt auf `counterparty_iban`, (2) IBAN als Teilstring in `description`, (3) Keyword in `description` (case-insensitiv) |
 | `makeCashAct(currency)` | Fabrik für Cash-Aktivitäten: `symbol = "$CASH-<Währung>"`, `quantity = unitPrice = "1"`, `amount` gesetzt |
-| `isCashSymbol(symbol)` (exportiert) | `true` für jedes `$CASH-…`-Symbol, unabhängig von der Währung – von `ImportPage` genutzt, um Cash- von Wertpapier-Aktivitäten zu trennen |
+| `isCashSymbol(symbol)` | `true` für jedes `$CASH-…`-Symbol, unabhängig von der Währung – von `ImportPage` genutzt, um Cash- von Wertpapier-Aktivitäten zu trennen (seit 1.3.4) |
+| `sortAndNumber(activities)` | Sortiert nach `date` und vergibt `lineNumber` (einzige Stelle dafür, siehe 5.5 Nr. 5) |
+| `tradeFinalCash(type, qty, price, fee)` | Exakter `amount` für `BUY`/`SELL`: `qty × price + fee` bzw. `− fee`, mit BigInt statt Float (seit 2.0.2, siehe 5.5 Nr. 7 und 6.4) |
 
 ### 5.4 Mapping-Tabelle (Ist-Zustand)
 
@@ -234,9 +293,9 @@ Neu ist `sortAndNumber(activities)` für Sortierung und `lineNumber`-Vergabe.
 
 | TR `category` / `type` | Erzeugte Aktivitäten | Gruppen-ID |
 |---|---|---|
-| `TRADING/BUY` (normal) | C `TRANSFER_OUT` (t−2s, Betrag+Gebühr+Steuer) → P `TRANSFER_IN` (t−1s) → P `BUY` (t) | `buy-<txid>` |
-| `TRADING/BUY` (STOCKPERK-finanziert) | P `CREDIT`/`BONUS` (t−1s) → P `BUY` (t) | – |
-| `TRADING/SELL` | P `SELL` (t) → P `TRANSFER_OUT` (t+1s, Erlös−Gebühr−Steuer) → C `TRANSFER_IN` (t+2s) | `sell-<txid>` |
+| `TRADING/BUY` (normal) | C `TRANSFER_OUT` (t−2s, Betrag+Gebühr+Steuer) → P `TRANSFER_IN` (t−1s) → P `BUY` (t, `amount` = `tradeFinalCash`) | `buy-<txid>` |
+| `TRADING/BUY` (STOCKPERK-finanziert) | P `CREDIT`/`BONUS` (t−1s) → P `BUY` (t, `amount` = `tradeFinalCash`) | – |
+| `TRADING/SELL` | P `SELL` (t, `amount` = `tradeFinalCash`) → P `TRANSFER_OUT` (t+1s, Erlös−Gebühr−Steuer) → C `TRANSFER_IN` (t+2s) | `sell-<txid>` |
 | `DELIVERY/FREE_RECEIPT` | P `TRANSFER_IN` (Wertpapier, Depotübertrag) | – |
 | `DELIVERY/MIGRATION` | → `skipped` (technischer ISIN-Wechsel) | – |
 | `CASH/STOCKPERK` | ignoriert (im BUY-Zweig verarbeitet), **nicht** in `skipped` | – |
@@ -287,7 +346,7 @@ Weitere Konventionen:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> NotConfigured: Konten fehlen in Settings
+    [*] --> NotConfigured: für keinen Broker Konten gesetzt
     [*] --> upload
     upload --> asset_review: unbekannte ISINs vorhanden
     upload --> checking: keine Wertpapiere ODER alle ISINs bekannt
@@ -311,15 +370,15 @@ Der gesamte Zustand liegt in `useState`-Hooks der Komponente (kein Store).
 sequenceDiagram
     participant U as Nutzer
     participant IP as ImportPage
-    participant T as transform()
+    participant T as formats.ts → transform() / transformScalable()
     participant S as settings.ts
     participant API as ctx.api
 
     IP->>S: loadSettings()
     IP->>API: accounts.getAll()
     U->>IP: CSV hochladen
-    IP->>IP: Papa.parse(header:true) → TrRow[]
-    IP->>T: transform(rows, settings)
+    IP->>T: parseAndTransform(text, settings)
+    T->>T: detectFormat (Kopfzeile), Papa.parse, Transformer wählen
     T-->>IP: {activities, skipped}
     IP->>IP: ISINs sammeln, mit settings.securityMappings vorbefüllen
     alt unbekannte ISINs
@@ -338,16 +397,23 @@ sequenceDiagram
 
 **Schritte im Detail:**
 
-1. **Upload (`handleFile`)**: Dateiendung `.csv` prüfen, `file.text()`, `Papa.parse`.
-2. **Transform**: `transform(parsed.data, settings)` → `parseResult`.
-3. **Wertpapiere ermitteln**: alle Aktivitäten, deren `symbol` kein Cash-Symbol ist (`isCashSymbol`) → `SecurityInfo { isin, name, count }`.
+1. **Upload (`handleFile`)**: Dateiendung `.csv` prüfen, `file.text()`.
+2. **Parsen + Transform**: `parseAndTransform(text, settings)` (`formats.ts`) erkennt das
+   Format an der Kopfzeile, prüft, ob für diesen Broker Konten gesetzt sind, parst mit
+   dem passenden Trennzeichen und ruft `transform()` bzw. `transformScalable()` auf.
+   Fehler (unbekanntes Format, fehlende Konten, leere Datei) erscheinen als `fileError`.
+   Das erkannte Format wird angezeigt.
+3. **Wertpapiere ermitteln**: alle Aktivitäten, deren `symbol` kein Cash-Symbol ist
+   (`isCashSymbol`) → `SecurityInfo { isin, name, count }`. Als `name` wird der
+   **jüngste** Name aus der Datei verwendet (seit 2.0.1).
 4. **Vorbefüllung** aus `settings.securityMappings`. Sind *alle* ISINs bekannt, wird
    `SecurityMappingStep` übersprungen.
 5. **`applySecurityMappings`**: ersetzt ISIN durch Ticker-Daten aus `SymbolSearchResult`
    (`symbol`, `exchangeMic`, `quoteCcy`, `instrumentType`, `providerId`, `assetId`, …).
    `"custom"` lässt die ISIN als Symbol stehen.
-6. **`checkImport`**: Host validiert und markiert Duplikate (`duplicateOfId`) und Fehler.
-   Bei Exception wird mit den ungeprüften Daten weitergemacht und eine Warnung gezeigt.
+6. **`checkImport`**: Host validiert und markiert Duplikate (`duplicateOfId`, siehe 6.4)
+   und Fehler. Bei Exception wird mit den ungeprüften Daten weitergemacht und eine
+   Warnung gezeigt.
 7. **Confirm**: Status je Aktivität über `activityStatus()`:
    - `duplicate` ⇔ `duplicateOfId` gesetzt (existiert bereits in der DB).
      `duplicateOfLineNumber` (Duplikat innerhalb der Datei) wird **bewusst ignoriert** –
@@ -376,6 +442,36 @@ sequenceDiagram
 
 **Konsequenz:** Wer `lineNumber`-Vergabe, Sortierung oder Filterung *zwischen*
 `transform()` und `handleImport` ändert, muss diese Zuordnung mitprüfen.
+
+### 6.4 Duplikaterkennung durch Wealthfolio (`idempotencyKey`)
+
+Die Erkennung passiert nicht im Addon, sondern in Wealthfolio (Rust-Kern,
+`crates/core/src/activities/idempotency.rs` und `activities_service.rs`, geprüft am
+Wealthfolio-Quellcode vom 04.10.2026). `checkImport` bildet je Aktivität einen
+SHA-256-Fingerabdruck und sucht ihn unter den gespeicherten Aktivitäten:
+
+| Feld im Fingerabdruck | Hinweis |
+|---|---|
+| Konto, Aktivitätstyp | – |
+| Datum | **nur der Tag**, ohne Uhrzeit |
+| Wertpapier | Asset-UUID, falls das Asset existiert, sonst `symbol@MIC` bzw. `symbol` |
+| Menge, Stückpreis, `amount`, Gebühr | **exakte** Dezimalwerte (Absolutbeträge, ohne Rundung) |
+| Währung | – |
+| Kommentar | Leerzeichen normalisiert |
+
+Folgen für das Addon:
+- **Kommentar mit `timeTag`** (5.3): sonst würden gleichartige Buchungen am selben Tag
+  zusammenfallen.
+- **`amount` bei `BUY`/`SELL`** (5.5 Nr. 7): Fehlt er, leitet Wealthfolio ihn beim
+  Anlegen ab und speichert ihn im Fingerabdruck – `checkImport` hasht aber den
+  eingereichten (leeren) Wert. Bis 2.0.1 wurden Trades deshalb bei einem erneuten Import
+  **nicht** als Duplikat erkannt und doppelt angelegt. Seit 2.0.2 schickt das Addon genau
+  den Wert, den Wealthfolio ableiten würde (`tradeFinalCash`); damit werden auch Trades
+  aus älteren Versionen erkannt.
+- Jede Änderung an Menge, Preis, Gebühr, Betrag, Kommentar oder Zeitstempel-Tag einer
+  bestehenden Mapping-Regel ändert den Fingerabdruck: Bereits importierte Aktivitäten
+  werden dann beim nächsten Import **nicht** mehr als Duplikat erkannt. Solche
+  Änderungen sind deshalb verhaltensändernd und im CHANGELOG zu vermerken.
 
 ---
 
@@ -423,12 +519,16 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
 ### 8.3 SettingsPage
 
 - Lädt Konten (`accounts.getAll()`, nur aktive/nicht archivierte) und Settings.
-- Kontoauswahl gefiltert nach `accountType` (`CASH` / `SECURITIES`); beim Wählen des
-  Cash-Kontos wird `cashCurrency` aus der Kontowährung übernommen.
+- Zwei Karten für Konten: **Trade Republic** und **Scalable Capital**, jeweils gefiltert
+  nach `accountType` (`CASH` / `SECURITIES`); beim Wählen eines Cash-Kontos wird
+  `cashCurrency` bzw. `scalableCashCurrency` aus der Kontowährung übernommen.
 - Editor für Transfer-Patterns (IBAN, Keyword, Label, Zielkonto).
 - Liste gespeicherter Security-Mappings mit Einzel-Löschen und „Clear all"
   (nötig, weil der Skip-Pfad im Import keinen „Clear"-Button zeigt).
-- Speichern erst nach Klick auf „Save settings"; Pflicht: beide Konten gesetzt.
+- Speichern erst nach Klick auf „Save settings". Pflicht: Für **mindestens einen** Broker
+  sind beide Konten gesetzt, und kein Broker ist nur halb konfiguriert.
+- Hinweis bei den Transfer-Patterns: Scalable-Exporte haben keine Gegen-IBAN, Patterns
+  greifen dort nur über den Text in `Notiz`.
 
 ---
 
@@ -446,6 +546,9 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 | `query` | `invalidateQueries` | ImportPage |
 | `portfolio` | `update` | ImportPage |
 | `market-data` | `searchTicker` | SecurityMappingStep |
+| `network` | `request` (nur Host `api.github.com`, `manifest.network.allowedHosts`) | updateCheck.ts (seit 2.1.0) |
+
+`ctx.api.storage` (Update-Cache) ist eine Grundfunktion und braucht keine Berechtigung.
 
 **Neue SDK-Aufrufe ⇒ Eintrag in `permissions` ergänzen** (und Versions-Bump, da Manifest-Änderung).
 
@@ -453,11 +556,22 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- Nur `transform()` wird getestet (`src/transform.test.ts`), die UI nicht.
-- **Unit-Tests** erzeugen Zeilen über `row({...overrides})` mit einer festen `CONFIG`.
-- **Fixture-Test** liest `src/__fixtures__/tr-sample.csv` mit Papa Parse und prüft
-  Gesamtanzahl (aktuell 14 Zeilen → 17 Aktivitäten + 1 skipped) und einzelne Fälle,
-  inkl. der Invariante „jedes interne Paar teilt eine `transferGroupId`".
+- 76 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
+- **`src/transform.test.ts`** (37 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
+  `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
+  `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (14 Zeilen → 17 Aktivitäten +
+  1 skipped) und einzelne Fälle, inkl. der Invariante „jedes interne Paar teilt eine
+  `transferGroupId`" und des exakten `amount` bei `BUY`/`SELL`.
+- **`src/scalable.test.ts`** (31 Tests, Scalable Capital): Zahlen- und Zeitzonen-Parser
+  (Sommer/Winter), jeder Typ, Storno, Depotumzug, `SWAP_OUT`, Rückzahlung,
+  Formaterkennung, `tradeFinalCash`, Fixture-Test mit
+  `src/__fixtures__/scalable-sample.csv` (26 Zeilen → 33 Aktivitäten + 9 skipped,
+  Endbestände). Die Tests laufen unabhängig von der Zeitzone des Rechners.
+- **`src/updateCheck.test.ts`** (8 Tests): Versionsvergleich, Auswertung der GitHub-Antwort,
+  Cache (frisch/abgelaufen), Verhalten bei blockierter oder fehlerhafter Anfrage – mit
+  einem nachgebauten `ctx`.
+- `CONFIG` in `transform.test.ts` und `scalable.test.ts` muss alle Felder von
+  `AddonSettings` enthalten.
 - Neue Transaktionstypen: **Fixture-Zeile ergänzen** (fiktive Daten, echtes Spaltenformat)
   und die Zähler im Fixture-Test anpassen (siehe `CONTRIBUTING.md`).
 
@@ -499,7 +613,7 @@ keine Release-Notes.
 2. Default in `DEFAULT_SETTINGS` (`settings.ts`) – sorgt für Rückwärtskompatibilität.
 3. UI in `SettingsPage.tsx` (über `set({ … })`).
 4. Nutzung in `transform.ts` (über `config`) bzw. `ImportPage.tsx`.
-5. `CONFIG` in `transform.test.ts` ergänzen (sonst Typfehler).
+5. `CONFIG` in `transform.test.ts` **und** `scalable.test.ts` ergänzen (sonst Typfehler).
 
 ### 12.3 Neue Seite / Route
 
@@ -521,6 +635,27 @@ keine Release-Notes.
   (6.3) muss erhalten bleiben.
 - Ein Umstieg auf `activities.saveMany` / Bulk-Import würde Wealthfolios eigenen
   Transfer-Linker aktivieren – dann `sourceGroupId`-Logik neu bewerten.
+- Duplikaterkennung hängt am Fingerabdruck aus 6.4 – Felder, die in ihn eingehen,
+  nicht nebenbei ändern.
+
+### 12.6 Neuen Broker (neues CSV-Format) anbinden
+
+1. **Zeilentyp** in `types.ts` (wie `ScRow`), **Transformer** `src/<broker>.ts` mit
+   Signatur `(rows, config) => TransformResult`; Helfer aus `common.ts` nutzen
+   (`makeCashAct`, `matchPattern`, `addSec`, `timeTag`, `sortAndNumber`,
+   `tradeFinalCash`).
+2. **Alle Invarianten aus 5.5** einhalten, insbesondere eigene Präfixe für
+   `transferGroupId` (z. B. `xy-buy-`), stabile IDs ohne Zeilennummer, `amount` bei Trades,
+   Zeitstempel in UTC.
+3. **`formats.ts`:** neuen Wert in `ImportFormat` und `FORMAT_LABEL`, Erkennung in
+   `detectFormat` (eindeutiges Merkmal der Kopfzeile), Kontenpaar in `formatAccounts`,
+   Parsen + Aufruf in `parseAndTransform`.
+4. **Einstellungen:** eigenes Kontenpaar in `AddonSettings` + `DEFAULT_SETTINGS`
+   (Rezept 12.2), Karte in `SettingsPage.tsx`, Speicherprüfung und
+   „Settings not configured"-Prüfung in `ImportPage.tsx` um den Broker erweitern,
+   Kontonamen in `accountName`.
+5. **Tests + Fixture** mit erfundenen Daten im echten Format; Doku (diese Datei,
+   README, `CLAUDE.md`), CHANGELOG, Minor-Bump.
 
 ---
 
@@ -534,21 +669,31 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
    (mit/ohne `cpname`) beachten.
 2. **`transform()` als lange `if`-Kaskade** – für viele neue Typen wäre eine
    Handler-Tabelle `Record<string, (row) => Activity[]>` übersichtlicher.
-3. **`ImportPage.tsx` (~850 Zeilen)** mischt UI und Logik; `applySecurityMappings`,
+3. **`ImportPage.tsx` (~870 Zeilen)** mischt UI und Logik; `applySecurityMappings`,
    `activityStatus` und der Payload-Bau in `handleImport` ließen sich in ein
    testbares Modul (z. B. `importer.ts`) auslagern.
 4. **Sequenzieller Import**: ein SDK-Aufruf pro Aktivität – langsam bei großen
    Dateien; Fehler pro Aktivität werden nur gezählt, nicht angezeigt.
 5. **`saveMany` und `assets.create`** sind deklariert, aber ungenutzt.
-6. **Keine UI-Tests**; nur `transform()` ist abgesichert.
+6. **Keine UI-Tests**; abgesichert sind nur die Transformer, `formats.ts` und
+   `tradeFinalCash`. Insbesondere die Zusammenarbeit mit Wealthfolio (`checkImport`,
+   Anlegen von Aktivitäten) ist nur am echten Addon prüfbar.
 7. **STOCKPERK-Zuordnung** ist O(n·m) und matcht nur über Symbol/Datum/Betrag –
    bei zwei identischen Käufen am selben Tag gewinnt der erste.
 8. **`opencode.yml`** hat uneinheitliche Einrückung unter `steps:` (7 vs. 8 Leerzeichen)
-   und ist dadurch kein gültiges YAML (Parser-Fehler in Zeile 25) – der Workflow kann so nicht laufen.
+   und ist dadurch kein gültiges YAML (Parser-Fehler in Zeile 25) – der Workflow kann so
+   nicht laufen (Stand 2.0.2 weiterhin so).
+9. **Doppelte Trades aus Versionen ≤ 2.0.1:** Wer eine Datei damals erneut importiert hat,
+   hat doppelte `BUY`/`SELL` in Wealthfolio (siehe 6.4). Das Addon bereinigt sie nicht.
+10. **Scalable-Annahmen** (14.3, „Offene Einzelfälle") sind nur an einem echten Export
+    geprüft.
+11. **Kein echtes Auto-Update:** Ohne Listung im Wealthfolio-Store kann das Addon neue
+    Versionen nur anzeigen (4.2); Download und „Install from File" bleiben manuell.
+    `UpdateBanner` ist nur im echten Addon prüfbar (Netzwerkfreigabe, Sandbox).
 
 ---
 
-## 14. Geplante Erweiterung: Scalable-Capital-CSV als Eingangsformat
+## 14. Scalable-Capital-CSV als Eingangsformat
 
 > **Status: umgesetzt in Version 1.4.0.** Dieser Abschnitt wurde vor der Umsetzung als
 > Plan geschrieben und beschreibt alle Änderungen, um zusätzlich Transaktionsexporte von **Scalable Capital**
@@ -608,8 +753,8 @@ Alle Zeit-Versätze (`addSec`) und `transferGroupId`-Regeln aus 5.5 gelten unver
 
 | Scalable `Typ` | Häufigkeit im Beispiel | Erzeugte Aktivitäten | TR-Gegenstück | |
 |---|---|---|---|---|
-| `Kauf` | 91 | C `TRANSFER_OUT` (t−2s, \|Wert\|) → P `TRANSFER_IN` (t−1s) → P `BUY` (t; `quantity`=Stück, `unitPrice`=Bruttobetrag/Stück, `fee`=Gebühren+Steuern) | `TRADING/BUY` | **[=]** Logik, **[Δ]** Feldquellen |
-| `Verkauf` | 10 | P `SELL` (t) → P `TRANSFER_OUT` (t+1s, Wert) → C `TRANSFER_IN` (t+2s) | `TRADING/SELL` | **[=]** Logik, **[Δ]** Feldquellen |
+| `Kauf` | 91 | C `TRANSFER_OUT` (t−2s, \|Wert\|) → P `TRANSFER_IN` (t−1s) → P `BUY` (t; `quantity`=Stück, `unitPrice`=Bruttobetrag/Stück, `fee`=Gebühren+Steuern, `amount`=`tradeFinalCash`) | `TRADING/BUY` | **[=]** Logik, **[Δ]** Feldquellen |
+| `Verkauf` | 10 | P `SELL` (t, `amount`=`tradeFinalCash`) → P `TRANSFER_OUT` (t+1s, Wert) → C `TRANSFER_IN` (t+2s) | `TRADING/SELL` | **[=]** Logik, **[Δ]** Feldquellen |
 | `Dividende` (Wert > 0) | 47 | P `DIVIDEND` (amount=Wert, quantity="1") → P `TRANSFER_OUT` → C `TRANSFER_IN` | `CASH/DIVIDEND` | **[Δ]** keine Steuer-/FX-Aufteilung |
 | `Dividende` (Wert < 0, `Notiz` enthält `CANCEL-<Ref>`) | 1 | **Storno:** Stornozeile **und** die ursprüngliche Dividende (gleiche ISIN, gleicher Betrag, `Notiz` enthält `<Ref>`) → beide `skipped`; die Neubuchung bleibt | – | **[NEU]** |
 | `Zinsen` | 9 | C `INTEREST` | `INTEREST_PAYMENT` | **[=]** |
@@ -677,15 +822,16 @@ flowchart TD
 | `src/SettingsPage.tsx` | zweite Karte „Scalable Capital accounts"; Pflichtprüfung nur für die Konten des genutzten Brokers | **[Δ]** |
 | `src/ImportPage.tsx` | `Papa.parse` + `transform()` durch `parseAndTransform()` ersetzen; erkanntes Format anzeigen; Fehlermeldung bei unbekannter Kopfzeile; Prüfung „Settings not configured" je Format; Texte allgemeiner | **[Δ]** |
 | `src/addon.tsx` | Sidebar-Label allgemeiner (z. B. „Broker Import") | **[Δ]** Entscheidung D |
-| `manifest.json` | `name`/`description`/`keywords` anpassen, `id` **unverändert**; keine neuen Berechtigungen nötig | **[Δ]** |
+| `manifest.json` | `name`/`description`/`keywords` anpassen, `id` **unverändert**; keine neuen Berechtigungen nötig (die `id` wurde später in 2.0.0 geändert, siehe 4.1) | **[Δ]** |
 | `src/scalable.test.ts` | **neu**: Unit-Tests je Typ + Fixture-Test | **[NEU]** |
 | `src/__fixtures__/scalable-sample.csv` | **neu**: erfundene Daten im echten Format (`;`, Dezimalkomma, BOM, CRLF), deckt jeden Typ und einen Depotumzug ab | **[NEU]** |
 | `README.md`, `CLAUDE.md`, `CHANGELOG.md` | Scalable-Export-Anleitung, neue Dateien, Changelog | **[Δ]** |
 | Version | **Minor-Bump auf 1.4.0** (neue Funktion, rückwärtskompatibel) | |
 
-Unverändert bleiben: `SecurityMappingStep.tsx` (arbeitet mit ISINs, die auch Scalable
-liefert), die Import-Schleife inkl. `lineNumber → transferGroupId → sourceGroupId` (6.3)
-und die Duplikaterkennung über `checkImport`.
+Unverändert blieben in 1.4.0: `SecurityMappingStep.tsx` (arbeitet mit ISINs, die auch
+Scalable liefert), die Import-Schleife inkl. `lineNumber → transferGroupId → sourceGroupId`
+(6.3) und die Duplikaterkennung über `checkImport`. Spätere Änderungen daran siehe
+Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 
 ### 14.6 Neue Invarianten für `scalable.ts`
 
@@ -713,9 +859,29 @@ und die Duplikaterkennung über `checkImport`.
 - Probelauf mit dem echten Export (240 Zeilen): 506 Aktivitäten, 28 übersprungene Zeilen
   (24 Umzugs-/Korrekturzeilen, 2 Dividenden-Storno, 2 Cash-Teil des Umzugs); kein
   Depotbestand wird negativ.
-- Tests: `src/scalable.test.ts` (29 Tests: Parser, Zeitzone inkl. Sommer/Winter, jeder
-  Typ, Storno, Umzug, `SWAP_OUT`, Rückzahlung, Formaterkennung, Fixture-Integration).
+- Tests: `src/scalable.test.ts` (in 1.4.0 29 Tests, seit 2.0.2 31: Parser, Zeitzone inkl.
+  Sommer/Winter, jeder Typ, Storno, Umzug, `SWAP_OUT`, Rückzahlung, Formaterkennung,
+  `tradeFinalCash`, Fixture-Integration).
   Die Tests laufen unabhängig von der Zeitzone des Rechners.
 - Rezept für neue Scalable-Typen: neuen `case` in Pass 4 von `transformScalable`
   ergänzen (bzw. einen eigenen Pass, wenn Zeilen paarweise verrechnet werden müssen),
   Zeile in `scalable-sample.csv` und Zähler im Fixture-Test anpassen.
+
+---
+
+## 15. Änderungshistorie seit 1.3.3
+
+Überblick über alle Änderungen, die nach der ersten Fassung dieses Dokuments (Stand
+1.3.3) umgesetzt wurden. Details stehen in `CHANGELOG.md` und in den genannten Abschnitten.
+
+| Version | Art | Änderung | Betroffene Dateien | Abschnitt |
+|---|---|---|---|---|
+| 1.3.4 | Fix | Cash-Aktivitäten werden für **jede** Cash-Währung erkannt (vorher fest `$CASH-EUR`; bei Nicht-EUR-Konten landeten Cash-Buchungen im Security-Mapping). Neu: `isCashSymbol()`. | `common.ts` (damals `transform.ts`), `ImportPage.tsx` | 5.3, 6.2 |
+| 1.4.0 | Feature | **Scalable Capital** als zweites Format: automatische Formaterkennung, eigenes Kontenpaar, Zeitzonen-Umrechnung, Verrechnung von Storno und Depotumzug. Helfer nach `common.ts` verschoben. | `formats.ts`, `scalable.ts`, `common.ts`, `types.ts`, `settings.ts`, `SettingsPage.tsx`, `ImportPage.tsx`, `addon.tsx`, `manifest.json` | 1, 3, 8, 14 |
+| 2.0.0 | **Bruch** | Umbenennung in **Broker Importer**: Addon-ID `broker-importer` (vorher `trade-republic-importer`), Paket `broker-importer-addon`, Release-ZIP `broker-importer-addon.zip`, Links auf `waldonso2/wealthfolio-importer-addon`. Bestehende Installationen müssen neu installiert und neu eingerichtet werden. | `manifest.json`, `addon.tsx`, `package.json`, `release.yml`, Doku | 4.1 |
+| 2.0.1 | Änderung | Suchfeld im Security-Mapping ist mit dem **Wertpapiernamen** (jüngster Name aus der Datei) statt der ISIN vorbelegt. | `SecurityMappingStep.tsx`, `ImportPage.tsx` | 6.2, 7 |
+| 2.0.2 | Fix | Erneut importierte **`BUY`/`SELL`** werden als Duplikat erkannt (vorher doppelt angelegt). Trades tragen den exakten `amount` (`tradeFinalCash`). | `common.ts`, `transform.ts`, `scalable.ts` | 5.5 Nr. 7, 6.4 |
+| 2.1.0 | Feature | **Update-Hinweis:** einmal täglich Abfrage der GitHub-Releases, Hinweis mit Download-Adresse, wenn eine neuere Version existiert. Neue Berechtigung `network` (nur `api.github.com`). | `updateCheck.ts`, `UpdateBanner.tsx`, `addon.tsx`, `manifest.json` | 4.2, 9 |
+
+Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
+(Teil von PR #3).
