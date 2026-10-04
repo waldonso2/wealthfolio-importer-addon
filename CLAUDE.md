@@ -30,6 +30,7 @@ All business logic is in `src/transform.ts` — tests live in `src/transform.tes
 | `src/__fixtures__/tr-sample.csv` | 14-row fixture covering every supported transaction type |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
 | `src/addon.tsx` | Entry point — registers pages and sidebar item via addon-sdk |
+| `docs/ARCHITECTURE.md` | Full architecture (German): modules, data flow, invariants, change recipes |
 
 ## Commands
 
