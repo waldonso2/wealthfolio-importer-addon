@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.4] - 2026-10-04
+
+### Fixed
+
+- Cash activities were treated as securities when the cash account's currency was not EUR: `ImportPage` compared symbols against a hardcoded `$CASH-EUR`, while the transform emits `$CASH-<cash currency>`. Such cash activities showed up in the security-mapping step and had ticker mappings applied to them. Cash symbols are now recognised for any currency.
+
 ## [1.3.3] - 2026-08-24
 
 ### Changed
