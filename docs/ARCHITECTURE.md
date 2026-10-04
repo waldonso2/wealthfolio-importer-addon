@@ -77,7 +77,7 @@ alle drei Stellen synchron halten.** Neue npm-Pakete, die nicht vom Host kommen,
 werden automatisch in `addon.js` gebündelt (→ `dependencies`).
 
 `pnpm bundle` zippt `manifest.json`, `dist/addon.js` und `README.md` zu
-`dist/trade-republic-importer-addon.zip` – das installierbare Paket.
+`dist/broker-importer-addon.zip` – das installierbare Paket.
 
 ---
 
@@ -140,11 +140,11 @@ in die React-Komponenten.
 Wealthfolio lädt `dist/addon.js` in einer Sandbox (iframe) und ruft den
 Default-Export `enable(ctx)` auf.
 
-1. **Sidebar-Eintrag** `ctx.sidebar.addItem({ id: "trade-republic-importer", icon: "bank", route: "/addon/trade-republic-importer" })`.
+1. **Sidebar-Eintrag** `ctx.sidebar.addItem({ id: "broker-importer", label: "Broker Import", icon: "bank", route: "/addon/broker-importer" })`.
 2. **Drei Routen** über `ctx.router.add({ path, render })`:
-   - `/addon/trade-republic-importer` → Import
-   - `/addon/trade-republic-importer/import` → Import
-   - `/addon/trade-republic-importer/settings` → Settings
+   - `/addon/broker-importer` → Import
+   - `/addon/broker-importer/import` → Import
+   - `/addon/broker-importer/settings` → Settings
 3. **Ein gemeinsamer React-Root.** Der Host übergibt *allen* Routen denselben
    DOM-Knoten. Deshalb wird `createRoot` nur einmal aufgerufen (`root ??= createRoot(...)`)
    und danach nur `root.render(...)`. Mehrere Roots auf demselben Knoten brechen das
@@ -153,6 +153,20 @@ Default-Export `enable(ctx)` auf.
 5. **`ctx.onDisable`**: Root unmounten, Sidebar-Eintrag entfernen.
 
 Jede Seite bekommt `ctx` als Prop; es gibt keinen globalen State/Context-Provider.
+
+### 4.1 Addon-ID und Namen
+
+| Merkmal | Wert | Bedeutung |
+|---|---|---|
+| `manifest.json` → `id` | `broker-importer` | Schlüssel, unter dem Wealthfolio das Addon, seine Routen und seine `secrets` führt |
+| `ADDON_ID` in `addon.tsx` | `broker-importer` | muss mit der `id` übereinstimmen; bildet die Routen `/addon/broker-importer/…` |
+| `package.json` → `name` | `broker-importer-addon` | npm-Paketname |
+| Release-Paket | `dist/broker-importer-addon.zip` | Name in `package.json` (`bundle`) und `.github/workflows/release.yml` |
+
+Bis einschließlich 1.4.0 lautete die `id` `trade-republic-importer`. **Eine Änderung der `id`
+ist ein Bruch:** Wealthfolio behandelt das Addon dann als neues Addon. Das alte muss
+deinstalliert werden, und die Einstellungen (Konten, Transfer-Patterns, Security-Mappings)
+müssen neu eingerichtet werden, weil `secrets` an die `id` gebunden sind.
 
 ---
 
@@ -550,7 +564,7 @@ Alle vier Empfehlungen wurden bestätigt und so umgesetzt.
 | A | Trade Republic **ersetzen** oder Scalable **zusätzlich** unterstützen? | **Zusätzlich**, Format wird automatisch an der Kopfzeile erkannt | Bestehende TR-Imports und Tests bleiben unverändert; kein Bruch für bestehende Installationen. |
 | B | Gleiche Wealthfolio-Konten für beide Broker oder **eigenes Kontenpaar** pro Broker? | **Eigenes Kontenpaar** für Scalable (Cash + Depot) | Wer beide Broker nutzt, würde sonst Scalable-Buchungen in die TR-Konten importieren. |
 | C | Depotumzug-/Storno-Buchungen ohne Nettoeffekt (siehe 14.4) | **Paarweise verrechnen und als `skipped` melden** | Sonst entstehen künstliche Ein-/Ausbuchungen, die den Einstandswert verfälschen. |
-| D | Addon-Name/Beschriftung | `manifest.json` → `id` **bleibt** `trade-republic-importer`; nur `name`, `description`, Sidebar-Label und Texte werden allgemeiner | Eine neue `id` wäre für Wealthfolio ein anderes Addon; gespeicherte Einstellungen (`secrets`) gingen verloren. |
+| D | Addon-Name/Beschriftung | In 1.4.0 blieb die `id` `trade-republic-importer`; nur `name`, `description`, Sidebar-Label und Texte wurden allgemeiner. **Nachtrag:** Mit der Umbenennung in `broker-importer` (siehe 4.1) wurde die `id` bewusst geändert. | Eine neue `id` ist für Wealthfolio ein anderes Addon; gespeicherte Einstellungen (`secrets`) gehen dabei verloren. |
 
 ### 14.2 Formatvergleich (Datei-Ebene)
 

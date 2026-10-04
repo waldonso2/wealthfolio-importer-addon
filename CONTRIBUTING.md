@@ -34,7 +34,7 @@ Runtime versions are pinned in `.tool-versions` (Node 24, pnpm 11) for anyone us
 
 ## Testing against a real Wealthfolio instance
 
-`pnpm dev:server` runs `wealthfolio dev`, which serves the addon for live reload against a running Wealthfolio app. For a one-off manual install test, `pnpm bundle` builds and zips `dist/trade-republic-importer-addon.zip` the same way the release workflow does — install it via **Settings → Add-ons → Install from File**.
+`pnpm dev:server` runs `wealthfolio dev`, which serves the addon for live reload against a running Wealthfolio app. For a one-off manual install test, `pnpm bundle` builds and zips `dist/broker-importer-addon.zip` the same way the release workflow does — install it via **Settings → Add-ons → Install from File**.
 
 ## Commit messages
 

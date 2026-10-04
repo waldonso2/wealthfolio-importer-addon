@@ -4,7 +4,7 @@ import type { AddonContext, AddonRouteRenderContext } from "@wealthfolio/addon-s
 import { ImportPage } from "./ImportPage";
 import { SettingsPage } from "./SettingsPage";
 
-const ADDON_ID = "trade-republic-importer";
+const ADDON_ID = "broker-importer";
 
 function ImportWrapper({ ctx }: { ctx: AddonContext }) {
   return (

@@ -1,4 +1,4 @@
-# Trade Republic Importer
+# Broker Importer
 
 A Wealthfolio addon that imports Trade Republic and Scalable Capital CSV exports
 into your portfolio. The export format is detected automatically.
@@ -10,11 +10,24 @@ withdrawals, dividends, and fees land) and a **portfolio account** (where
 securities are held). This addon maps that model to two existing Wealthfolio
 accounts you select in Settings.
 
+## Upgrading from "Trade Republic Importer" (1.4.0 and earlier)
+
+The addon was renamed to **Broker Importer** and its addon ID changed from
+`trade-republic-importer` to `broker-importer`. Wealthfolio treats it as a new
+addon, so:
+
+1. Note your settings (accounts, transfer patterns, saved security mappings).
+2. Uninstall the old **Trade Republic Importer** addon.
+3. Install `broker-importer-addon.zip` as described below and set up the settings again.
+
+Activities you already imported stay in Wealthfolio; only the addon's own
+settings need to be re-entered.
+
 ## Setup
 
 1. Install the addon:
-   - Download the `trade-republic-importer-addon.zip` asset from the
-     [latest release](https://github.com/blastik/trade-republic-importer-addon/releases/latest)
+   - Download the `broker-importer-addon.zip` asset from the
+     [latest release](https://github.com/waldonso2/wealthfolio-importer-addon/releases/latest)
    - In Wealthfolio, go to **Settings → Add-ons**, click **Install from File**, and
      select the downloaded zip
    - This addon is registered in Wealthfolio's community addon directory for

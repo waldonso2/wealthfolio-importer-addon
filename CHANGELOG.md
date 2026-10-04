@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** renamed to **Broker Importer**. The addon ID changed from `trade-republic-importer` to `broker-importer` (routes are now `/addon/broker-importer/…`), the npm package to `broker-importer-addon`, and the release asset to `broker-importer-addon.zip`. Wealthfolio treats this as a new addon: uninstall the old one and re-enter the settings (accounts, transfer patterns, security mappings). Already imported activities are not affected.
+- Repository links now point to `waldonso2/wealthfolio-importer-addon`.
+
 ## [1.4.0] - 2026-10-04
 
 ### Added
