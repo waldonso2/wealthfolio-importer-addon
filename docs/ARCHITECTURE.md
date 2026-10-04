@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.0.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.0.1 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Trade-Republic-Kern; **Abschnitt 14** beschreibt den
 > Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic.
 > Zeilenangaben sind Orientierung, keine Garantie – bei Abweichungen gilt der Code.
@@ -379,7 +379,7 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
 
 - `SecurityMapping = SymbolSearchResult | "custom"` (`types.ts`).
 - `TickerSearchInput`: debounced (350 ms) `ctx.api.market.searchTicker(query)`,
-  vorbelegt mit der ISIN, zeigt max. 8 Treffer, markiert bereits existierende Assets.
+  vorbelegt mit dem Wertpapiernamen (jüngster Name aus der Datei; ohne Namen die ISIN), zeigt max. 8 Treffer, markiert bereits existierende Assets.
 - Pro Zeile: Ticker wählen, „Custom" (ISIN bleibt Symbol) oder Zuordnung löschen.
 - „Mark All Custom" und „Continue" (erst aktiv, wenn alles aufgelöst).
 - Callbacks: `onMappingsChange`, `onComplete(mappings)`, `onBack`.

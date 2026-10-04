@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.1] - 2026-10-04
+
+### Changed
+
+- The ticker search in the security-mapping step now starts with the security's name instead of its ISIN (falling back to the ISIN when the CSV has no name). For securities that appear several times, the most recent name from the file is used, since exports can carry outdated names for older rows.
+
 ## [2.0.0] - 2026-10-04
 
 ### Changed

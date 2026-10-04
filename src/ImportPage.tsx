@@ -343,6 +343,9 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         const existing = secMap.get(a.symbol);
         if (existing) {
           existing.count += 1;
+          // Activities are sorted oldest first, so this keeps the most recent
+          // name — exports may carry outdated names for older rows.
+          if (a.symbolName) existing.name = a.symbolName;
         } else {
           secMap.set(a.symbol, { isin: a.symbol, name: a.symbolName ?? "", count: 1 });
         }
