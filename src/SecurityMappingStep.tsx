@@ -172,7 +172,12 @@ function SecurityRow({
           </Button>
         </div>
       ) : (
-        <TickerSearchInput defaultQuery={info.isin} onSelect={onMapped} ctx={ctx} />
+        <TickerSearchInput
+          // Search by security name first; fall back to the ISIN when the CSV has no name.
+          defaultQuery={info.name || info.isin}
+          onSelect={onMapped}
+          ctx={ctx}
+        />
       )}
 
       {/* Col 3: Mark Custom (only when unresolved) */}

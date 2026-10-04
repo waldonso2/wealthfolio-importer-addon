@@ -379,7 +379,7 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
 
 - `SecurityMapping = SymbolSearchResult | "custom"` (`types.ts`).
 - `TickerSearchInput`: debounced (350 ms) `ctx.api.market.searchTicker(query)`,
-  vorbelegt mit der ISIN, zeigt max. 8 Treffer, markiert bereits existierende Assets.
+  vorbelegt mit dem Wertpapiernamen (jüngster Name aus der Datei; ohne Namen die ISIN), zeigt max. 8 Treffer, markiert bereits existierende Assets.
 - Pro Zeile: Ticker wählen, „Custom" (ISIN bleibt Symbol) oder Zuordnung löschen.
 - „Mark All Custom" und „Continue" (erst aktiv, wenn alles aufgelöst).
 - Callbacks: `onMappingsChange`, `onComplete(mappings)`, `onBack`.
