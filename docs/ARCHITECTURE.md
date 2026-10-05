@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.5.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.6.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -110,7 +110,7 @@ src/
 ├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets)
 ├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[] (inkl. Vorlauf planSpecialRows)
 ├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, SkippedRow/SkipKind, …)
-├── transform.test.ts       Unit- und Fixture-Tests für transform() (68 Tests)
+├── transform.test.ts       Unit- und Fixture-Tests für transform() (73 Tests)
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 └── __fixtures__/
@@ -312,7 +312,7 @@ Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` 
 | `makeCashAct(currency)` | Fabrik für Cash-Aktivitäten: `symbol = "$CASH-<Währung>"`, `quantity = unitPrice = "1"`, `amount` gesetzt |
 | `isCashSymbol(symbol)` | `true` für jedes `$CASH-…`-Symbol, unabhängig von der Währung – von `ImportPage` genutzt, um Cash- von Wertpapier-Aktivitäten zu trennen (seit 1.3.4) |
 | `sortAndNumber(activities)` | Sortiert nach `date` und vergibt `lineNumber` (einzige Stelle dafür, siehe 5.5 Nr. 5) |
-| `tradeFinalCash(type, qty, price, fee)` | Exakter `amount` für `BUY`/`SELL`: `qty × price + fee` bzw. `− fee`, mit BigInt statt Float (seit 2.0.2, siehe 5.5 Nr. 7 und 6.4) |
+| `tradeFinalCash(type, qty, price, fee, tax?)` | Exakter `amount` für `BUY`/`SELL`: `qty × price + fee + tax` bzw. `− fee − tax`, mit BigInt statt Float (seit 2.0.2, `tax` seit 2.6.0; siehe 5.5 Nr. 7 und 6.4) |
 
 Nur in `transform.ts`:
 
@@ -332,9 +332,9 @@ Nur in `transform.ts`:
 
 | TR `category` / `type` | Erzeugte Aktivitäten | Gruppen-ID |
 |---|---|---|
-| `TRADING/BUY` (normal) | C `TRANSFER_OUT` (t−2s, Betrag+Gebühr+Steuer) → P `TRANSFER_IN` (t−1s) → P `BUY` (t, `amount` = `tradeFinalCash`) | `buy-<txid>` |
-| `TRADING/BUY` (STOCKPERK-finanziert) | P `CREDIT`/`BONUS` (t−1s) → P `BUY` (t, `amount` = `tradeFinalCash`) | – |
-| `TRADING/SELL` | P `SELL` (t, `amount` = `tradeFinalCash`) → P `TRANSFER_OUT` (t+1s, Erlös−Gebühr−Steuer) → C `TRANSFER_IN` (t+2s) | `sell-<txid>` |
+| `TRADING/BUY` (normal) | C `TRANSFER_OUT` (t−2s, Betrag+Gebühr+Steuer) → P `TRANSFER_IN` (t−1s) → P `BUY` (t, `fee` = Gebühr, `tax` = Steuer, `amount` = `tradeFinalCash`) | `buy-<txid>` |
+| `TRADING/BUY` (STOCKPERK-finanziert) | P `CREDIT`/`BONUS` (t−1s) → P `BUY` (t, `fee`/`tax` getrennt, `amount` = `tradeFinalCash`) | – |
+| `TRADING/SELL` | P `SELL` (t, `fee` = Gebühr, `tax` = einbehaltene Steuer, `amount` = `tradeFinalCash` = Erlös − Gebühr − Steuer) → P `TRANSFER_OUT` (t+1s, Geldfluss) → C `TRANSFER_IN` (t+2s). Steuer**erstattung** (positive `tax`): zusätzlich P `CREDIT`/`TAX_REFUND`, mit umgebucht | `sell-<txid>` |
 | `DELIVERY/FREE_RECEIPT` | P `TRANSFER_IN` (Wertpapier, Depotübertrag) | – |
 | `DELIVERY/MIGRATION` | → `skipped` (`netted`, technischer ISIN-Wechsel) | – |
 | `CASH/STOCKPERK` | ignoriert (im BUY-Zweig verarbeitet), **nicht** in `skipped` | – |
@@ -344,7 +344,7 @@ Nur in `transform.ts`:
 | `CASH/CARD_TRANSACTION`, `CARD_TRANSACTION_INTERNATIONAL` | C `WITHDRAWAL` (Betrag inkl. Gebühr) bzw. `DEPOSIT` bei Erstattung | – |
 | `CASH/CARD_ORDERING_FEE` | C `FEE` | – |
 | `CASH/BENEFITS_SAVEBACK` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
-| `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` | P `DIVIDEND` immer in der Auszahlungswährung (`currency`, Bruttobetrag `amount`); bei Fremdwährung steht der Originalbetrag nur im Kommentar („… (8.01 USD)“) + optional P `TAX` → P `TRANSFER_OUT` (t+1s, netto) → C `TRANSFER_IN` (t+2s). Kommentar-Präfix je Typ: „Dividend" / „Distribution" / „Exchange distribution" (Tabelle `DIVIDEND_LIKE`) | `div-<txid>` |
+| `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` | **eine** P `DIVIDEND` in der Auszahlungswährung mit `amount` = Nettobetrag und `tax` = Quellensteuer (Wealthfolio weist Ertrag brutto = `amount + tax` und die Steuer aus; seit 2.6.0, vorher eigene `TAX`-Zeile); bei Fremdwährung steht der Originalbetrag nur im Kommentar („… (8.01 USD)“) → P `TRANSFER_OUT` (t+1s, netto) → C `TRANSFER_IN` (t+2s). Kommentar-Präfix je Typ: „Dividend" / „Distribution" / „Exchange distribution" (Tabelle `DIVIDEND_LIKE`) | `div-<txid>` |
 | `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` mit **negativem** Betrag | Storno: hebt die zeitlich nächste Zeile derselben ISIN mit gleichem Betrag und gleicher Steuer (umgekehrtes Vorzeichen) auf, beide → `skipped` (`netted`, `planSpecialRows`). Gehört sie zu einem `DIVIDEND_REINVESTMENT`, finanziert sie dessen BUY (siehe unten). Sonst → `skipped` (`missing`) | – |
 | `CASH/EARNINGS`, `PRE_DETERMINED_TAX_BASE` (Vorabpauschale), `SEC_ACCOUNT`, `TAX_OPTIMIZATION` | Betrag = `amount + tax` (meist nur `tax`): negativ → C `TAX`, positiv → C `CREDIT`/`TAX_REFUND`, 0 → `skipped` (`netted`) (Tabelle `TAX_ONLY`) | – |
 | `CASH/REFERRAL` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
@@ -354,7 +354,7 @@ Nur in `transform.ts`:
 | `CORPORATE_ACTION/STOCK_DIVIDEND` | P `DIVIDEND`/`DIVIDEND_IN_KIND` (`quantity` n, `unitPrice` = `price`, `amount` = n × `price`) – Wealthfolio bucht Ertrag + Zugang, ohne Bargeld. +n/−n-Umbuchung derselben ISIN → beide `skipped` (`netted`); ohne Preis → `skipped` (`missing`) | – |
 | `CORPORATE_ACTION/DIVIDEND_REINVESTMENT` + negative `CASH/DIVIDEND` derselben ISIN (≤ 7 Tage) | C `TRANSFER_OUT` (t−2s) → P `TRANSFER_IN` (t−1s) über den abgebuchten Betrag → P `BUY` n Stück; die negative Dividendenzeile erzeugt selbst nichts. Ohne Abbuchung → `skipped` (`missing`) | `buy-<txid>` |
 | anderer `CORPORATE_ACTION`-Typ | → `skipped` (`missing`, mit Stückänderung und Hinweis) | – |
-| `CASH/INTEREST_PAYMENT`, `MANUAL_CASH_TRANSFER` | C `INTEREST` + optional C `TAX` | – |
+| `CASH/INTEREST_PAYMENT`, `MANUAL_CASH_TRANSFER` | **eine** C `INTEREST` mit `amount` = Nettobetrag und `tax` = Quellensteuer (seit 2.6.0, vorher eigene `TAX`-Zeile) | – |
 | anderer `CASH`-Typ | → `skipped` (`missing`, Hinweis nennt die Bargeldwirkung) | – |
 | andere `category` | → `skipped` (`missing`) | – |
 
@@ -362,7 +362,14 @@ Weitere Konventionen:
 - `instrumentType`: `asset_class === "STOCK"` → `EQUITY`, sonst `FUND`.
 - Wertpapier-Aktivitäten verwenden zunächst die **ISIN als `symbol`**; die Auflösung
   auf echte Ticker passiert erst in der UI (Abschnitt 6.2).
-- Gebühr und Steuer bei BUY/SELL werden zu `fee` zusammengefasst.
+- **Gebühr und Steuer stehen in eigenen Feldern** (`fee`, `tax`; seit 2.6.0, vorher bei
+  BUY/SELL zu `fee` zusammengefasst). In Wealthfolio ist `amount` immer der tatsächliche
+  Geldfluss; Gebühr und Steuer werden daraus getrennt ausgewiesen
+  (`portfolio-engine/compile.rs`: Ertrag = `amount + fee + tax`, SELL-Erlös =
+  `amount + fee + tax`, BUY-Kosten = `amount − fee − tax`). Das Feld `tax` nimmt nur
+  Belastungen auf; eine Erstattung wird eine eigene `CREDIT`/`TAX_REFUND`. Eigene
+  `TAX`-Zeilen gibt es nur für Steuern ohne zugehörige Buchung (Vorabpauschale,
+  Steuerkorrekturen).
 
 ### 5.5 Invarianten (bei Änderungen unbedingt einhalten)
 
@@ -385,7 +392,7 @@ Weitere Konventionen:
    der Nutzer tun kann. Die UI zeigt das als Spalte „Status“ und sortiert `missing` nach
    oben.
 7. **`BUY`/`SELL` tragen immer `amount = tradeFinalCash(...)`** (`common.ts`): exakt
-   `Menge × Stückpreis + Gebühr` (BUY) bzw. `− Gebühr` (SELL), mit BigInt statt Float
+   `Menge × Stückpreis + Gebühr + Steuer` (BUY) bzw. `− Gebühr − Steuer` (SELL), mit BigInt statt Float
    berechnet. Wealthfolio bildet den Duplikat-Fingerabdruck (`idempotencyKey`) aus dem
    exakten `amount`. Fehlt er, leitet Wealthfolio ihn beim Anlegen genau so ab und
    speichert ihn – `checkImport` hasht aber den eingereichten Wert. Ohne `amount`
@@ -502,6 +509,8 @@ sequenceDiagram
    - Duplikat → `ctx.api.activities.update({ id: duplicateOfId, … })`
    - sonst → `ctx.api.activities.create({ … })`
    - `asset`-Objekt wird aus den Symbolfeldern gebaut (Host legt Assets bei Bedarf an).
+   - `fee` und `tax` werden getrennt übergeben (`tax` seit 2.6.0; vorher schickte
+     `handleImport` das Feld nicht mit).
    - Fehler einzelner Aufrufe werden gezählt (`skippedCount`), nicht abgebrochen.
    - Danach `portfolio.update()` + `query.invalidateQueries([])` (Fehler hier sind unkritisch).
    - Ergebnis wird als synthetisches `ImportActivitiesResult` angezeigt.
@@ -531,7 +540,7 @@ SHA-256-Fingerabdruck und sucht ihn unter den gespeicherten Aktivitäten:
 | Konto, Aktivitätstyp | – |
 | Datum | **nur der Tag**, ohne Uhrzeit |
 | Wertpapier | Asset-UUID, falls das Asset existiert, sonst `symbol@MIC` bzw. `symbol` |
-| Menge, Stückpreis, `amount`, Gebühr | **exakte** Dezimalwerte (Absolutbeträge, ohne Rundung) |
+| Menge, Stückpreis, `amount`, Gebühr (wenn ≠ 0) | **exakte** Dezimalwerte (Absolutbeträge, ohne Rundung). **`tax` ist nicht enthalten** |
 | Währung | – |
 | Kommentar | Leerzeichen normalisiert |
 
@@ -550,6 +559,9 @@ Folgen für das Addon:
   Änderungen sind deshalb verhaltensändernd und im CHANGELOG zu vermerken. Beispiel:
   2.4.0 bucht Fremdwährungs-Dividenden in EUR statt USD – die mit älteren Versionen
   importierten müssen vor dem Neuimport gelöscht werden (CHANGELOG „Upgrade note“).
+  Ebenso 2.6.0: Steuer in `tax` statt in `fee` bzw. als eigene Zeile ändert `fee` bei
+  Verkäufen mit Steuer und `amount` (netto statt brutto) bei Dividenden und Zinsen mit
+  Steuer.
 
 ---
 
@@ -634,10 +646,10 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 107 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
-- **`src/transform.test.ts`** (68 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
+- 112 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
+- **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
-  `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 36 Aktivitäten +
+  `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
   1 skipped) und einzelne Fälle, inkl. der Invariante „jedes interne Paar teilt eine
   `transferGroupId`" und des exakten `amount` bei `BUY`/`SELL`.
 - **`src/scalable.test.ts`** (31 Tests, Scalable Capital): Zahlen- und Zeitzonen-Parser
@@ -782,7 +794,10 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 13. **Nur am Wealthfolio-Quellcode geprüft, nicht im echten Wealthfolio:** `SPLIT` mit
     dem Verhältnis in `amount`, `DIVIDEND_IN_KIND`, `SELL` zu 0 (`WORTHLESS`) und
     `quoteMode: "MANUAL"` für „custom“-Aktien. Erst ein echter Import zeigt, ob
-    `checkImport` sie annimmt.
+    `checkImport` sie annimmt. Dasselbe gilt für das Feld `tax` (seit 2.6.0).
+14. **Scalable Capital fasst Gebühr und Steuer bei Trades noch zu `fee` zusammen** und
+    bucht Dividenden ohne Steueraufteilung (14.3). Eine Angleichung an 2.6.0 würde dort
+    ebenfalls Duplikat-Fingerabdrücke ändern.
 
 ---
 
@@ -984,6 +999,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.3.1 | Fix (kein eigenes Release) | Als „custom“ gemappte **Aktien** ohne Marktdaten (z. B. delistet) werden als manuell bepreist angelegt, statt von `checkImport` mit „Could not find … in market data“ abgelehnt zu werden – vorher scheiterten alle Aktivitäten einer solchen ISIN. | `ImportPage.tsx` | 6.2 |
 | 2.4.0 | Fix (Datenänderung) | Dividenden in Fremdwährung werden in der Auszahlungswährung (EUR) gebucht statt in USD/ZAR mit `fxRate` – vorher blieben USD-/ZAR-Guthaben und ein EUR-Minus auf dem Portfolio-Konto. Negative Dividenden (Stornos) werden verrechnet bzw. übersprungen statt als positive Dividende gebucht. **Bereits importierte Fremdwährungs-Dividenden gelten nicht mehr als Duplikat** und müssen vor dem Neuimport gelöscht werden. | `transform.ts` | 5.4, 5.5 Nr. 10 |
 | 2.5.0 | Feature | TR-Kapitalmaßnahmen Stufe 3: `SPLIT` als Wealthfolio-`SPLIT` (Verhältnis aus dem Bestand der Datei), `STOCK_DIVIDEND` als `DIVIDEND`/`DIVIDEND_IN_KIND` (+n/−n-Umbuchung verrechnet), `DIVIDEND_REINVESTMENT` mit seiner negativen Dividendenzeile als vom Cash-Konto finanzierter `BUY`. Übersprungene Zeilen tragen `kind` (`netted`/`missing`) und `hint`; die UI zeigt Status und Hinweis. Vorlauf `mapCorporateActions` + `dividendCorrections` → `planSpecialRows`. | `transform.ts`, `scalable.ts`, `types.ts`, `ImportPage.tsx` | 5.4, 5.5 Nr. 6, 16.3 |
+| 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).

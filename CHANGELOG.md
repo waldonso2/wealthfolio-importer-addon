@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.6.0] - 2026-10-05
+
+### Changed
+
+- Trade Republic: fee and tax are imported into Wealthfolio's separate fee and tax fields, so Wealthfolio reports them correctly.
+  - Sells (and buys): the tax is no longer added to the fee. A tax refund on a sale is booked as a tax-refund credit.
+  - Dividends, fund distributions and interest: one activity with the net amount and the withholding tax, instead of a gross activity plus a separate TAX row.
+  - Stand-alone taxes (Vorabpauschale, tax adjustments) stay their own TAX rows.
+- The import now passes the tax field to Wealthfolio.
+
+### Upgrade note
+
+- The following no longer match their earlier imports and are not recognised as duplicates: sells with tax (the fee changed), and dividends and interest with withholding tax (now net amount, no separate TAX row). Before re-importing, delete them in Wealthfolio together with their "Withholding tax on …" TAX rows, or they will be counted twice. The simplest way is to empty the two Trade Republic accounts and re-import the full export.
+
 ## [2.5.0] - 2026-10-05
 
 ### Added
