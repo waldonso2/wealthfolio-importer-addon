@@ -465,45 +465,27 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         const tOut = addSec(dt, 1);
         const tIn = addSec(dt, 2);
 
-        if (r.original_currency) {
-          const trFx = num(r.fx_rate);
-          const wfFx = trFx !== 0 ? parseFloat((1.0 / trFx).toFixed(6)) : 1;
-          activities.push({
-            accountId: portfolioAccountId,
-            activityType: "DIVIDEND",
-            date: dt,
-            symbol: r.symbol,
-            symbolName: r.name,
-            quoteCcy,
-            quantity: sharesVal,
-            currency: r.original_currency,
-            amount: r.original_amount,
-            fxRate: String(wfFx),
-            comment: `${label} ${r.name} (${r.original_amount} ${r.original_currency})${timeTag(dt)}`,
-            isValid: true,
-            isDraft: false,
-          });
-          if (taxAmt) {
-            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
-          }
-        } else {
-          activities.push({
-            accountId: portfolioAccountId,
-            activityType: "DIVIDEND",
-            date: dt,
-            symbol: r.symbol,
-            symbolName: r.name,
-            quoteCcy,
-            quantity: sharesVal,
-            currency: r.currency || cashCurrency,
-            amount: fmtAmt(absAmt),
-            comment: `${label} ${r.name}${timeTag(dt)}`,
-            isValid: true,
-            isDraft: false,
-          });
-          if (taxAmt) {
-            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
-          }
+        // Booked in the currency TR actually paid out (the cash currency). The
+        // original amount (e.g. USD) only goes into the comment: a DIVIDEND in the
+        // original currency left that currency as cash on the portfolio account,
+        // because TAX and the sweep to cash are in EUR.
+        const original = r.original_currency ? ` (${r.original_amount} ${r.original_currency})` : "";
+        activities.push({
+          accountId: portfolioAccountId,
+          activityType: "DIVIDEND",
+          date: dt,
+          symbol: r.symbol,
+          symbolName: r.name,
+          quoteCcy,
+          quantity: sharesVal,
+          currency: r.currency || cashCurrency,
+          amount: fmtAmt(absAmt),
+          comment: `${label} ${r.name}${original}${timeTag(dt)}`,
+          isValid: true,
+          isDraft: false,
+        });
+        if (taxAmt) {
+          activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
         }
 
         const dividendGroupId = `div-${r.transaction_id}`;
