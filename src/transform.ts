@@ -24,6 +24,139 @@ const TAX_ONLY = new Map<string, string>([
   ["TAX_OPTIMIZATION", "Tax optimisation"],
 ]);
 
+// CORPORATE_ACTION types where one ISIN is swapped for another at the same
+// timestamp: the old ISIN leaves with -n shares, the new one arrives with +m.
+const SECURITY_EXCHANGE = new Map<string, string>([
+  ["SHARE_EXCHANGE", "Share exchange"],
+  ["ADR_DISCONTINUATION", "ADR discontinuation"],
+  ["REORGANISATION", "Reorganisation"],
+  ["REVERSE_SPLIT", "Reverse split"],
+]);
+
+type CorporateResult = { activity: ActivityImportEx } | { skip: string };
+
+// More decimals than fmtAmt: a per-share cost basis can be tiny (25,000 → 38 shares).
+function fmtPrice(n: number): string {
+  return n.toFixed(10).replace(/\.?0+$/, "") || "0";
+}
+
+// Maps the supported CORPORATE_ACTION rows, keyed by transaction_id.
+//
+// Wealthfolio refuses a TRANSFER_OUT/TRANSFER_IN pair between two different
+// assets, so an ISIN change is booked as an unpaired TRANSFER_OUT of the old
+// ISIN and an unpaired TRANSFER_IN of the new one that carries the old
+// position's cost basis as unitPrice. The export has no cost basis, so it is
+// rebuilt FIFO (like Wealthfolio's lot relief) from the BUY/SELL/FREE_RECEIPT
+// rows of the same file; if the file doesn't hold the shares, the rows are
+// skipped instead of booking a made-up cost.
+function mapCorporateActions(rows: TrRow[], config: AddonSettings): Map<string, CorporateResult> {
+  const { portfolioAccountId } = config;
+  const cashCurrency = config.cashCurrency || "EUR";
+  const result = new Map<string, CorporateResult>();
+  const lots = new Map<string, { qty: number; cost: number }[]>();
+
+  const held = (isin: string) => (lots.get(isin) ?? []).reduce((sum, l) => sum + l.qty, 0);
+  const addLot = (isin: string, qty: number, cost: number) => {
+    if (qty > 0) lots.set(isin, [...(lots.get(isin) ?? []), { qty, cost }]);
+  };
+  // Removes qty shares FIFO and returns the cost basis they carried.
+  const relieve = (isin: string, qty: number): number => {
+    let left = qty;
+    let cost = 0;
+    for (const lot of lots.get(isin) ?? []) {
+      if (left <= 0) break;
+      const take = Math.min(lot.qty, left);
+      const part = (lot.cost * take) / lot.qty;
+      cost += part;
+      lot.cost -= part;
+      lot.qty -= take;
+      left -= take;
+    }
+    lots.set(isin, (lots.get(isin) ?? []).filter((l) => l.qty > 1e-9));
+    return cost;
+  };
+  const security = (r: TrRow, activityType: string, date: string, quantity: number, unitPrice: string, comment: string) =>
+    ({
+      accountId: portfolioAccountId,
+      activityType,
+      date,
+      symbol: r.symbol,
+      symbolName: r.name,
+      instrumentType: r.asset_class === "STOCK" ? "EQUITY" : "FUND",
+      quoteCcy: r.currency || cashCurrency,
+      quantity: fmtPrice(quantity),
+      unitPrice,
+      currency: r.currency || cashCurrency,
+      comment,
+      isValid: true,
+      isDraft: false,
+    }) as ActivityImportEx;
+
+  const sorted = [...rows].sort((a, b) => a.datetime.localeCompare(b.datetime));
+  for (const r of sorted) {
+    const shares = Math.abs(num(r.shares));
+
+    if (r.category === "TRADING" && r.type === "BUY") {
+      const fee = Math.abs(num(r.fee)) + Math.abs(num(r.tax));
+      addLot(r.symbol, shares, Number(tradeFinalCash("BUY", r.shares, r.price, fee ? fmtAmt(fee) : "0")));
+      continue;
+    }
+    if (r.category === "TRADING" && r.type === "SELL") {
+      relieve(r.symbol, shares);
+      continue;
+    }
+    if (r.category === "DELIVERY" && r.type === "FREE_RECEIPT") {
+      addLot(r.symbol, shares, shares * num(r.price));
+      continue;
+    }
+    if (r.category !== "CORPORATE_ACTION" || result.has(r.transaction_id)) continue;
+
+    if (r.type === "WORTHLESS") {
+      relieve(r.symbol, shares);
+      result.set(r.transaction_id, {
+        activity: {
+          ...security(r, "SELL", r.datetime, shares, "0", `${r.name} - written off as worthless${timeTag(r.datetime)}`),
+          fee: "0",
+          amount: "0",
+        },
+      });
+      continue;
+    }
+
+    const label = SECURITY_EXCHANGE.get(r.type);
+    if (!label) continue;
+    const legs = sorted.filter(
+      (x) => x.category === "CORPORATE_ACTION" && x.type === r.type && x.datetime === r.datetime,
+    );
+    const out = legs.filter((x) => num(x.shares) < 0);
+    const inn = legs.filter((x) => num(x.shares) > 0);
+    const skipAll = (reason: string) => legs.forEach((x) => result.set(x.transaction_id, { skip: reason }));
+    if (out.length !== 1 || inn.length !== 1 || out[0].symbol === inn[0].symbol) {
+      skipAll(`${r.type}: expected one outgoing and one incoming ISIN at the same time`);
+      continue;
+    }
+    const [o, i] = [out[0], inn[0]];
+    const outQty = Math.abs(num(o.shares));
+    const inQty = num(i.shares);
+    if (held(o.symbol) + 1e-9 < outQty) {
+      skipAll(
+        `${r.type}: cost basis of ${o.symbol} unknown - this file holds ${fmtPrice(held(o.symbol))} of ${fmtPrice(outQty)} shares (import the full history)`,
+      );
+      continue;
+    }
+    const cost = relieve(o.symbol, outQty);
+    addLot(i.symbol, inQty, cost);
+    const note = `${label}: ${o.symbol} -> ${i.symbol}`;
+    result.set(o.transaction_id, {
+      activity: security(o, "TRANSFER_OUT", o.datetime, outQty, fmtPrice(cost / outQty), `${o.name} - ${note}${timeTag(o.datetime)}`),
+    });
+    result.set(i.transaction_id, {
+      activity: security(i, "TRANSFER_IN", addSec(i.datetime, 1), inQty, fmtPrice(cost / inQty), `${i.name} - ${note}${timeTag(i.datetime)}`),
+    });
+  }
+  return result;
+}
+
 export function transform(rows: TrRow[], config: AddonSettings): TransformResult {
   const { cashAccountId, portfolioAccountId, transferPatterns } = config;
   const cashCurrency = config.cashCurrency || "EUR";
@@ -31,6 +164,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
 
   const activities: ActivityImportEx[] = [];
   const skipped: SkippedRow[] = [];
+  const corporate = mapCorporateActions(rows, config);
 
   // Pre-build set of BUY transaction_ids funded by a STOCKPERK gift
   const stockperkFundedBuyIds = new Set<string>();
@@ -530,12 +664,23 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
       continue;
     }
 
+    // ── CORPORATE_ACTION (mapped up front, see mapCorporateActions) ───────────
+    const mapped = category === "CORPORATE_ACTION" ? corporate.get(r.transaction_id) : undefined;
+    if (mapped && "activity" in mapped) {
+      activities.push(mapped.activity);
+      continue;
+    }
+    if (mapped) {
+      skipped.push({ datetime: dt, type: typ, category, description: desc, reason: mapped.skip });
+      continue;
+    }
+
     skipped.push({
       datetime: dt,
       type: typ,
       category,
       description: desc,
-      reason: `Unknown category: ${category}`,
+      reason: category === "CORPORATE_ACTION" ? `Unsupported corporate action: ${typ}` : `Unknown category: ${category}`,
     });
   }
 
