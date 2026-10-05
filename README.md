@@ -51,7 +51,9 @@ broker you use. Optionally add **transfer patterns** (see below).
 | ISIN migration | skipped |
 | Share exchange, ADR discontinuation, reorganisation, reverse split into a new ISIN | TRANSFER_OUT of the old and TRANSFER_IN of the new ISIN, carrying the cost basis (computed from the file) |
 | Worthless write-off | SELL at 0 |
-| Splits, stock dividends, dividend reinvestment | not yet supported, listed as skipped |
+| Stock split | SPLIT (ratio derived from the shares held, computed from the file) |
+| Stock dividend | DIVIDEND in kind (income plus shares) |
+| Dividend reinvestment | BUY of the new shares, paid from the cash account |
 
 **Scalable Capital**
 
@@ -64,7 +66,9 @@ broker you use. Optionally add **transfer patterns** (see below).
 | Fund liquidation (`SWAP_OUT`), certificate redemption | SELL |
 | Depot migration (paired out/in transfers) | skipped |
 
-Rows that can't be mapped are listed as skipped, never silently dropped.
+Rows that aren't imported are listed under **Skipped**, never silently dropped. Each
+shows a status – *No action needed* (e.g. a reversal and the dividend it cancels) or
+*Not imported* – and for the latter a hint on what to add manually.
 
 ## Transfer patterns
 

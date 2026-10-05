@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.5.0] - 2026-10-05
+
+### Added
+
+- Trade Republic corporate actions, stage 3:
+  - `SPLIT` is imported as a Wealthfolio split; the ratio is derived from the shares held before the split, computed from the file.
+  - `STOCK_DIVIDEND` is imported as a dividend in kind (income plus shares). A later +n/−n rebooking by Trade Republic cancels out.
+  - `DIVIDEND_REINVESTMENT` is imported together with the cash Trade Republic debited for it, as a BUY paid from the cash account. The cash dividend itself was already booked as income.
+- Skipped rows now show a status: *No action needed* for rows skipped on purpose (reversals, rebookings, technical ISIN changes) or *Not imported*. Rows that weren't imported come first and include a hint on what to do, e.g. how much cash an unsupported row moved. This applies to both Trade Republic and Scalable Capital.
+
+### Changed
+
+- The review page counts "not imported" and "netted out" rows separately; the "Unsupported" tab is now called "Skipped".
+
 ## [2.4.0] - 2026-10-05
 
 ### Fixed
