@@ -71,6 +71,8 @@ Trade Republic uses:
 
 Buying a stock moves funds Cash → Portfolio (TRANSFER_OUT / TRANSFER_IN pair) then records the BUY. Selling is the reverse. This pairing is required by Wealthfolio to keep account balances consistent.
 
+The portfolio account must end up holding no cash: every cash-moving activity there (dividend, tax, buy, sell) is in the cash currency and fully swept to/from the cash account. Wealthfolio keeps cash per currency, so a DIVIDEND booked in USD next to an EUR tax and EUR sweep leaves USD cash and an EUR deficit behind — foreign dividends are booked in the payout currency, with the original amount only in the comment.
+
 Scalable Capital uses the same model with its **own** account pair (`scalableCashAccountId` / `scalablePortfolioAccountId` in `AddonSettings`), so users of both brokers never mix them. Every internal pair in `scalable.ts` follows the same `transferGroupId` rule below, with `sc-`-prefixed IDs.
 
 ## Internal transfers and spending

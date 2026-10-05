@@ -33,6 +33,40 @@ const SECURITY_EXCHANGE = new Map<string, string>([
   ["REVERSE_SPLIT", "Reverse split"],
 ]);
 
+// A dividend-like row with a negative amount is a correction. A reversal
+// (same ISIN, amount and tax with opposite signs) cancels the closest-in-time
+// matching row; both are skipped. Pairing it with the closest row keeps the
+// originally booked dividend when TR reverses and immediately rebooks one, so
+// earlier imports stay duplicates. Negative rows without such a partner (e.g.
+// cash taken for a dividend reinvestment) are skipped with a reason rather than
+// booked as income.
+function dividendCorrections(rows: TrRow[]): Map<string, string> {
+  const skip = new Map<string, string>();
+  const dividends = rows.filter((r) => r.category === "CASH" && DIVIDEND_LIKE.has(r.type));
+  const cents = (s: string) => Math.round(num(s) * 100);
+  const time = (r: TrRow) => new Date(r.datetime).getTime();
+  for (const neg of dividends.filter((r) => num(r.amount) < 0)) {
+    const partner = dividends
+      .filter(
+        (r) =>
+          num(r.amount) > 0 &&
+          !skip.has(r.transaction_id) &&
+          r.symbol === neg.symbol &&
+          cents(r.amount) === -cents(neg.amount) &&
+          cents(r.tax) === -cents(neg.tax),
+      )
+      .sort((a, b) => Math.abs(time(a) - time(neg)) - Math.abs(time(b) - time(neg)))[0];
+    if (partner) {
+      const reason = `${neg.type} reversal: cancels out with the ${partner.type} of ${partner.date === neg.date ? "the same day" : partner.date}`;
+      skip.set(neg.transaction_id, reason);
+      skip.set(partner.transaction_id, `${partner.type} cancelled by the reversal of ${neg.date}`);
+    } else {
+      skip.set(neg.transaction_id, `${neg.type} with negative amount and no matching ${neg.type} to cancel (e.g. a dividend reinvestment) - not supported`);
+    }
+  }
+  return skip;
+}
+
 type CorporateResult = { activity: ActivityImportEx } | { skip: string };
 
 // More decimals than fmtAmt: a per-share cost basis can be tiny (25,000 → 38 shares).
@@ -165,6 +199,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
   const activities: ActivityImportEx[] = [];
   const skipped: SkippedRow[] = [];
   const corporate = mapCorporateActions(rows, config);
+  const dividendSkips = dividendCorrections(rows);
 
   // Pre-build set of BUY transaction_ids funded by a STOCKPERK gift
   const stockperkFundedBuyIds = new Set<string>();
@@ -455,6 +490,11 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
       }
 
       const label = DIVIDEND_LIKE.get(typ);
+      const dividendSkip = label ? dividendSkips.get(r.transaction_id) : undefined;
+      if (dividendSkip) {
+        skipped.push({ datetime: dt, type: typ, category, description: desc, reason: dividendSkip });
+        continue;
+      }
       if (label) {
         const lower = label.toLowerCase();
         const taxAmt = num(tax);
@@ -465,45 +505,27 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         const tOut = addSec(dt, 1);
         const tIn = addSec(dt, 2);
 
-        if (r.original_currency) {
-          const trFx = num(r.fx_rate);
-          const wfFx = trFx !== 0 ? parseFloat((1.0 / trFx).toFixed(6)) : 1;
-          activities.push({
-            accountId: portfolioAccountId,
-            activityType: "DIVIDEND",
-            date: dt,
-            symbol: r.symbol,
-            symbolName: r.name,
-            quoteCcy,
-            quantity: sharesVal,
-            currency: r.original_currency,
-            amount: r.original_amount,
-            fxRate: String(wfFx),
-            comment: `${label} ${r.name} (${r.original_amount} ${r.original_currency})${timeTag(dt)}`,
-            isValid: true,
-            isDraft: false,
-          });
-          if (taxAmt) {
-            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
-          }
-        } else {
-          activities.push({
-            accountId: portfolioAccountId,
-            activityType: "DIVIDEND",
-            date: dt,
-            symbol: r.symbol,
-            symbolName: r.name,
-            quoteCcy,
-            quantity: sharesVal,
-            currency: r.currency || cashCurrency,
-            amount: fmtAmt(absAmt),
-            comment: `${label} ${r.name}${timeTag(dt)}`,
-            isValid: true,
-            isDraft: false,
-          });
-          if (taxAmt) {
-            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
-          }
+        // Booked in the currency TR actually paid out (the cash currency). The
+        // original amount (e.g. USD) only goes into the comment: a DIVIDEND in the
+        // original currency left that currency as cash on the portfolio account,
+        // because TAX and the sweep to cash are in EUR.
+        const original = r.original_currency ? ` (${r.original_amount} ${r.original_currency})` : "";
+        activities.push({
+          accountId: portfolioAccountId,
+          activityType: "DIVIDEND",
+          date: dt,
+          symbol: r.symbol,
+          symbolName: r.name,
+          quoteCcy,
+          quantity: sharesVal,
+          currency: r.currency || cashCurrency,
+          amount: fmtAmt(absAmt),
+          comment: `${label} ${r.name}${original}${timeTag(dt)}`,
+          isValid: true,
+          isDraft: false,
+        });
+        if (taxAmt) {
+          activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
         }
 
         const dividendGroupId = `div-${r.transaction_id}`;

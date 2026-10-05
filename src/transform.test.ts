@@ -287,7 +287,7 @@ describe("DIVIDEND", () => {
     expect(out.transferGroupId).toBe(cashIn.transferGroupId);
   });
 
-  it("foreign-currency dividend includes fxRate and converts tax", () => {
+  it("foreign-currency dividend is booked in the payout currency, original amount in the comment", () => {
     const { activities } = transform(
       [
         row({
@@ -308,9 +308,37 @@ describe("DIVIDEND", () => {
     );
 
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
-    expect(div.currency).toBe("USD");
-    expect(div.fxRate).toBeDefined();
-    expect(div.comment).toContain("10 USD");
+    expect(div.currency).toBe("EUR");
+    expect(div.amount).toBe("9");
+    expect(div.fxRate).toBeUndefined();
+    expect(div.comment).toContain("Dividend Apple (10 USD)");
+  });
+
+  it("leaves no cash on the portfolio account, in any currency", () => {
+    const { activities } = transform(
+      [
+        row({
+          category: "CASH",
+          type: "DIVIDEND",
+          symbol: "AAPL",
+          name: "Apple",
+          shares: "10",
+          amount: "9",
+          tax: "-1.35",
+          original_amount: "10.50",
+          original_currency: "USD",
+          fx_rate: "0.857143",
+        }),
+      ],
+      CONFIG,
+    );
+    const balance = new Map<string, number>();
+    for (const a of activities.filter((x) => x.accountId === "portfolio")) {
+      const sign = a.activityType === "DIVIDEND" || a.activityType === "TRANSFER_IN" ? 1 : -1;
+      balance.set(a.currency!, (balance.get(a.currency!) ?? 0) + sign * Number(a.amount));
+    }
+    expect([...balance.keys()]).toEqual(["EUR"]);
+    expect(balance.get("EUR")).toBeCloseTo(0, 9);
   });
 });
 
@@ -337,9 +365,9 @@ describe("Dividend-like CASH types", () => {
     expect(skipped).toHaveLength(0);
     expect(activities.map((a) => a.activityType).sort()).toEqual(["DIVIDEND", "TAX", "TRANSFER_IN", "TRANSFER_OUT"]);
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
-    expect(div.amount).toBe("2.20");
-    expect(div.currency).toBe("USD");
-    expect(div.comment).toContain("Distribution Example Bond (Dist)");
+    expect(div.amount).toBe("2");
+    expect(div.currency).toBe("EUR");
+    expect(div.comment).toContain("Distribution Example Bond (Dist) (2.20 USD)");
     const out = activities.find((a) => a.activityType === "TRANSFER_OUT")!;
     const cashIn = activities.find((a) => a.activityType === "TRANSFER_IN")!;
     expect(out.amount).toBe("1.5");
@@ -370,6 +398,35 @@ describe("Dividend-like CASH types", () => {
       "Dividend Apple from Portfolio",
       "Withholding tax on dividend Apple",
     ]);
+  });
+});
+
+describe("Dividend corrections", () => {
+  const div = (amount: string, tax: string, datetime: string, transaction_id: string) =>
+    row({ category: "CASH", type: "DIVIDEND", symbol: "DE0001", name: "Example AG", shares: "25", amount, tax, datetime, date: datetime.slice(0, 10), transaction_id });
+
+  it("a reversal cancels the closest matching dividend; the original stays booked", () => {
+    const { activities, skipped } = transform(
+      [
+        div("385", "-101.54", "2025-05-13T09:44:22.000Z", "orig"),
+        div("-385", "101.54", "2025-06-03T12:26:41.000Z", "rev"),
+        div("385", "-101.54", "2025-06-03T12:47:54.000Z", "rebook"),
+      ],
+      CONFIG,
+    );
+    const dividends = activities.filter((a) => a.activityType === "DIVIDEND");
+    expect(dividends).toHaveLength(1);
+    expect(dividends[0].date).toBe("2025-05-13T09:44:22.000Z");
+    expect(skipped.map((s) => s.reason)).toEqual([
+      "DIVIDEND reversal: cancels out with the DIVIDEND of the same day",
+      "DIVIDEND cancelled by the reversal of 2025-06-03",
+    ]);
+  });
+
+  it("a negative dividend without a matching partner is skipped, never booked as income", () => {
+    const { activities, skipped } = transform([div("-23.2", "", "2025-03-26T16:01:14.000Z", "neg")], CONFIG);
+    expect(activities).toHaveLength(0);
+    expect(skipped[0].reason).toContain("negative amount and no matching DIVIDEND");
   });
 });
 
@@ -771,11 +828,11 @@ describe("CSV fixture integration", () => {
     expect(cashTransfersOut).toHaveLength(0);
   });
 
-  it("DIVIDEND (USD) → DIVIDEND with fxRate + TRANSFER_OUT portfolio + TRANSFER_IN cash", () => {
+  it("DIVIDEND (USD) → DIVIDEND in EUR + TRANSFER_OUT portfolio + TRANSFER_IN cash", () => {
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
-    expect(div.currency).toBe("USD");
-    expect(div.fxRate).toBeDefined();
-    expect(div.comment).toContain("Apple");
+    expect(div.currency).toBe("EUR");
+    expect(div.amount).toBe("0.05");
+    expect(div.comment).toContain("Apple (0.05 USD)");
 
     const divOut = activities.find(
       (a) =>
@@ -863,7 +920,7 @@ describe("CSV fixture integration", () => {
 
   it("DISTRIBUTION, REFERRAL, EARNINGS and TAX_OPTIMIZATION are mapped, not skipped", () => {
     const by = (c: string) => activities.filter((a) => a.comment?.startsWith(c));
-    expect(by("Distribution Example Bond").find((a) => a.activityType === "DIVIDEND")!.amount).toBe("2.20");
+    expect(by("Distribution Example Bond").find((a) => a.activityType === "DIVIDEND")!.amount).toBe("2");
     expect(by("Referral bonus")[0]).toMatchObject({ activityType: "CREDIT", subtype: "BONUS", amount: "50" });
     expect(by("Advance lump-sum tax")[0]).toMatchObject({ activityType: "TAX", amount: "0.33" });
     expect(by("Tax optimisation")[0]).toMatchObject({ activityType: "CREDIT", subtype: "TAX_REFUND", amount: "1.25" });
