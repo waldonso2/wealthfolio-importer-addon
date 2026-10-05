@@ -7,7 +7,9 @@ für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 > Stand: Version 2.5.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
-> **Abschnitt 15** listet alle Änderungen seit Version 1.3.3.
+> **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
+> wie die zunächst nicht unterstützten Trade-Republic-Typen (Ausschüttungen, Steuern,
+> Kapitalmaßnahmen) in drei Stufen dazukamen.
 > Zeilenangaben sind Orientierung, keine Garantie – bei Abweichungen gilt der Code.
 
 ---
@@ -53,10 +55,13 @@ Nutzer wählt daher **pro Broker** zwei Wealthfolio-Konten (für Scalable Capita
 | Konto | Typ in Wealthfolio | Erhält |
 |---|---|---|
 | **Cash-Konto** (`cashAccountId`) | `CASH` | Einzahlungen, Auszahlungen, Kartenzahlungen, Zinsen, Saveback, Gebühren |
-| **Portfolio-Konto** (`portfolioAccountId`) | `SECURITIES` | Käufe, Verkäufe, Dividenden, Einlieferungen |
+| **Portfolio-Konto** (`portfolioAccountId`) | `SECURITIES` | Käufe, Verkäufe, Dividenden, Einlieferungen, Kapitalmaßnahmen (Wertpapierwechsel, Splits, Aktiendividenden) |
 
 Damit die Salden beider Konten stimmen, erzeugt das Addon für jede Geldbewegung
-zwischen ihnen ein **TRANSFER_OUT/TRANSFER_IN-Paar** (Details in Abschnitt 5).
+zwischen ihnen ein **TRANSFER_OUT/TRANSFER_IN-Paar** (Details in Abschnitt 5). Am Ende
+hält das Portfolio-Konto **kein Bargeld** (5.5 Nr. 10): Was dort an Geld ankommt
+(Verkauf, Dividende), wird vollständig zum Cash-Konto umgebucht, und alles, was dort
+bezahlt wird (Kauf), kommt vorher vom Cash-Konto.
 
 ---
 
@@ -97,15 +102,15 @@ src/
 ├── formats.ts              Formaterkennung (Kopfzeile) + Parsen + Weiterleitung an den Transformer
 ├── common.ts               Gemeinsame Helfer beider Transformer (makeCashAct, matchPattern, …)
 ├── scalable.ts             Scalable Capital: ScRow[] → ActivityImportEx[] (Abschnitt 14)
-├── ImportPage.tsx          Import-Wizard (Zustandsautomat, SDK-Aufrufe, Import-Schleife)
+├── ImportPage.tsx          Import-Wizard (Zustandsautomat, SDK-Aufrufe, Import-Schleife, Tabelle der übersprungenen Zeilen)
 ├── UpdateBanner.tsx        Hinweis auf neue Version (über Import und Settings)
 ├── updateCheck.ts          Prüft GitHub-Releases auf eine neuere Version (4.2)
 ├── SecurityMappingStep.tsx UI-Schritt: ISIN → Ticker zuordnen
 ├── SettingsPage.tsx        Einstellungen: Konten, Transfer-Patterns, Security-Mappings
 ├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets)
-├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[]
-├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, …)
-├── transform.test.ts       Unit- und Fixture-Tests für transform() (37 Tests)
+├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[] (inkl. Vorlauf planSpecialRows)
+├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, SkippedRow/SkipKind, …)
+├── transform.test.ts       Unit- und Fixture-Tests für transform() (68 Tests)
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 └── __fixtures__/
@@ -239,7 +244,12 @@ transform(rows: TrRow[], config: AddonSettings): TransformResult
 
 - `TrRow` = eine CSV-Zeile als String-Map (Spalten wie im TR-Export, siehe `types.ts`).
 - `ActivityImportEx` = SDK-Typ `ActivityImport` **plus** optionales `transferGroupId`.
-- `SkippedRow` = Zeilen, die bewusst oder mangels Regel nicht importiert werden.
+- `SkippedRow` = Zeilen, die bewusst oder mangels Regel nicht importiert werden:
+  `{ datetime, type, category, description, reason, kind?, hint? }`. `kind` ist
+  `netted` (absichtlich übersprungen, Wirkung ist abgedeckt – z. B. Storno und
+  stornierte Zeile) oder `missing` (nicht importiert, Wealthfolio weicht vom Broker ab);
+  `hint` sagt bei `missing`, was der Nutzer von Hand ergänzen kann. Texte auf Englisch,
+  weil sie in der Addon-UI erscheinen.
 
 Die Funktion ist **rein**: keine I/O, kein Zufall, keine Uhrzeit. Gleicher Input → gleicher Output.
 
@@ -247,25 +257,43 @@ Die Funktion ist **rein**: keine I/O, kein Zufall, keine Uhrzeit. Gleicher Input
 
 ```mermaid
 flowchart TD
-    A[rows] --> B[Vorlauf: STOCKPERK-Zeilen<br/>passenden BUYs zuordnen]
-    B --> C{für jede Zeile:<br/>category / type}
+    A[rows] --> P[Vorlauf planSpecialRows:<br/>Stornos, Kapitalmaßnahmen,<br/>FIFO-Bestände]
+    P --> B[Vorlauf: STOCKPERK-Zeilen<br/>passenden BUYs zuordnen]
+    B --> C{für jede Zeile:<br/>vorgeplant?<br/>sonst category / type}
+    C -->|vorgeplant| V[Aktivitäten bzw.<br/>skipped aus dem Vorlauf]
     C -->|TRADING/BUY| D[BUY-Regel]
     C -->|TRADING/SELL| E[SELL-Regel]
     C -->|DELIVERY/*| F[FREE_RECEIPT / MIGRATION]
     C -->|CASH/*| G[CASH-Unterregeln]
-    C -->|sonst| H[skipped: Unknown category]
-    D & E & F & G --> I[activities / skipped]
+    C -->|sonst| H[skipped: missing]
+    V & D & E & F & G & H --> I[activities / skipped]
     I --> J[nach date sortieren]
     J --> K[lineNumber = Index+1 vergeben]
 ```
 
-1. **Vorlauf STOCKPERK:** Für jede `STOCKPERK`-Zeile wird ein `BUY` mit gleichem
+1. **Vorlauf `planSpecialRows` (seit 2.5.0, vorher `dividendCorrections` +
+   `mapCorporateActions`):** Zeilen, deren Bedeutung von *anderen* Zeilen abhängt, werden
+   vorab entschieden und unter ihrer `transaction_id` abgelegt – entweder als fertige
+   Aktivitäten (auch eine leere Liste, wenn eine andere Zeile die Wirkung bucht) oder als
+   `skipped` mit Grund:
+   - **Dividenden-Stornos:** negative Dividende + Gegenstück (gleiche ISIN, gleicher
+     Betrag und gleiche Steuer mit umgekehrtem Vorzeichen; das zeitlich nächste) → beide
+     `netted`.
+   - **Aktiendividenden-Umbuchung:** −n hebt das zeitlich nächste +n derselben ISIN auf.
+   - **FIFO-Bestände:** chronologischer Durchlauf über `BUY`, `SELL`, `FREE_RECEIPT` und
+     die Kapitalmaßnahmen selbst; daraus Einstandswert bei Wertpapierwechseln und
+     Verhältnis bei Splits (Details 16.2, 16.3).
+   - **Wiederanlage:** `DIVIDEND_REINVESTMENT` + negative Dividendenzeile → finanzierter
+     `BUY`.
+   Die Hauptschleife prüft zuerst, ob eine Zeile vorgeplant ist.
+2. **Vorlauf STOCKPERK:** Für jede `STOCKPERK`-Zeile wird ein `BUY` mit gleichem
    `symbol`, `date` und Betrag (auf Cent gerundet) gesucht. Dessen `transaction_id`
    landet in `stockperkFundedBuyIds` – diese Käufe sind von TR geschenkt und werden
    nicht aus dem Cash-Konto finanziert.
-2. **Hauptschleife:** Eine lange `if`-Kaskade nach `category` + `type`. Jeder Zweig
-   endet mit `continue`. Was durchfällt, landet in `skipped`.
-3. **Sortierung** nach `date` (aufsteigend, stabil) und anschließend **Vergabe von
+3. **Hauptschleife:** Eine lange `if`-Kaskade nach `category` + `type`. Jeder Zweig
+   endet mit `continue`. Was durchfällt, landet in `skipped` (`missing`, mit Hinweis
+   auf die Bargeldwirkung der Zeile, `moneyHint`).
+4. **Sortierung** nach `date` (aufsteigend, stabil) und anschließend **Vergabe von
    `lineNumber`** (1-basiert). `lineNumber` ist der Schlüssel, über den die UI
    Aktivitäten nach `checkImport` wiedererkennt (siehe 6.3).
 
@@ -285,6 +313,17 @@ Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` 
 | `isCashSymbol(symbol)` | `true` für jedes `$CASH-…`-Symbol, unabhängig von der Währung – von `ImportPage` genutzt, um Cash- von Wertpapier-Aktivitäten zu trennen (seit 1.3.4) |
 | `sortAndNumber(activities)` | Sortiert nach `date` und vergibt `lineNumber` (einzige Stelle dafür, siehe 5.5 Nr. 5) |
 | `tradeFinalCash(type, qty, price, fee)` | Exakter `amount` für `BUY`/`SELL`: `qty × price + fee` bzw. `− fee`, mit BigInt statt Float (seit 2.0.2, siehe 5.5 Nr. 7 und 6.4) |
+
+Nur in `transform.ts`:
+
+| Name | Zweck |
+|---|---|
+| `DIVIDEND_LIKE` | Typen, die wie eine Dividende gebucht werden, mit Kommentar-Präfix (`DIVIDEND`, `DISTRIBUTION`, `EXCHANGE`) |
+| `TAX_ONLY` | Typen, die nur Steuer bewegen (Vorabpauschale, Steuerkorrekturen), mit Kommentartext |
+| `SECURITY_EXCHANGE` | Kapitalmaßnahmen, bei denen eine ISIN gegen eine andere getauscht wird, mit Bezeichnung |
+| `planSpecialRows(rows, config)` | Vorlauf für Zeilen, die von anderen Zeilen abhängen (5.2 Nr. 1) |
+| `fmtPrice(n)` | wie `fmtAmt`, aber 10 Nachkommastellen (Stückpreise und Stückzahlen bei Kapitalmaßnahmen) |
+| `moneyHint(r)` | Hinweistext für eine nicht unterstützte Zeile: um wie viel sie das TR-Bargeld verändert hat |
 
 ### 5.4 Mapping-Tabelle (Ist-Zustand)
 
@@ -307,7 +346,7 @@ Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` 
 | `CASH/BENEFITS_SAVEBACK` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
 | `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` | P `DIVIDEND` immer in der Auszahlungswährung (`currency`, Bruttobetrag `amount`); bei Fremdwährung steht der Originalbetrag nur im Kommentar („… (8.01 USD)“) + optional P `TAX` → P `TRANSFER_OUT` (t+1s, netto) → C `TRANSFER_IN` (t+2s). Kommentar-Präfix je Typ: „Dividend" / „Distribution" / „Exchange distribution" (Tabelle `DIVIDEND_LIKE`) | `div-<txid>` |
 | `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` mit **negativem** Betrag | Storno: hebt die zeitlich nächste Zeile derselben ISIN mit gleichem Betrag und gleicher Steuer (umgekehrtes Vorzeichen) auf, beide → `skipped` (`netted`, `planSpecialRows`). Gehört sie zu einem `DIVIDEND_REINVESTMENT`, finanziert sie dessen BUY (siehe unten). Sonst → `skipped` (`missing`) | – |
-| `CASH/EARNINGS`, `PRE_DETERMINED_TAX_BASE` (Vorabpauschale), `SEC_ACCOUNT`, `TAX_OPTIMIZATION` | Betrag = `amount + tax` (meist nur `tax`): negativ → C `TAX`, positiv → C `CREDIT`/`TAX_REFUND`, 0 → `skipped` (Tabelle `TAX_ONLY`) | – |
+| `CASH/EARNINGS`, `PRE_DETERMINED_TAX_BASE` (Vorabpauschale), `SEC_ACCOUNT`, `TAX_OPTIMIZATION` | Betrag = `amount + tax` (meist nur `tax`): negativ → C `TAX`, positiv → C `CREDIT`/`TAX_REFUND`, 0 → `skipped` (`netted`) (Tabelle `TAX_ONLY`) | – |
 | `CASH/REFERRAL` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
 | `CORPORATE_ACTION/SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION`, `REVERSE_SPLIT` | P `TRANSFER_OUT` alte ISIN (t) + P `TRANSFER_IN` neue ISIN (t+1s), beide mit `unitPrice` = Einstandswert ÷ Stück (FIFO aus derselben Datei, `planSpecialRows`); Einstandswert unbekannt → beide Zeilen `skipped` (`missing`) | – (absichtlich ungepaart, siehe 16.2) |
 | `CORPORATE_ACTION/WORTHLESS` | P `SELL` zu 0 (`fee` 0, `amount` 0), keine Cash-Umbuchung | – |
@@ -455,6 +494,10 @@ sequenceDiagram
    - sonst `valid`.
    Duplikate werden standardmäßig **aktualisiert**; der Nutzer kann sie per
    `excludedLines` (Set von `lineNumber`) überspringen.
+   Der Reiter **„Skipped“** (bis 2.4.0 „Unsupported“) zeigt die `skipped`-Zeilen des
+   Transformers mit Spalte **Status** („Not imported“ rot und oben, „No action needed“)
+   und dem `hint` unter der Begründung; die Kopfzeile zählt „not imported“ und „netted
+   out“ getrennt.
 8. **Import (`handleImport`)**: sequenziell, eine Aktivität pro SDK-Aufruf:
    - Duplikat → `ctx.api.activities.update({ id: duplicateOfId, … })`
    - sonst → `ctx.api.activities.create({ … })`
@@ -504,7 +547,9 @@ Folgen für das Addon:
 - Jede Änderung an Menge, Preis, Gebühr, Betrag, Kommentar oder Zeitstempel-Tag einer
   bestehenden Mapping-Regel ändert den Fingerabdruck: Bereits importierte Aktivitäten
   werden dann beim nächsten Import **nicht** mehr als Duplikat erkannt. Solche
-  Änderungen sind deshalb verhaltensändernd und im CHANGELOG zu vermerken.
+  Änderungen sind deshalb verhaltensändernd und im CHANGELOG zu vermerken. Beispiel:
+  2.4.0 bucht Fremdwährungs-Dividenden in EUR statt USD – die mit älteren Versionen
+  importierten müssen vor dem Neuimport gelöscht werden (CHANGELOG „Upgrade note“).
 
 ---
 
@@ -636,8 +681,17 @@ keine Release-Notes.
    gemeinsamer `transferGroupId` (`<präfix>-${r.transaction_id}`), Zeitversatz via `addSec`.
 4. Ausgehend? → `matchPattern` wie bei den bestehenden Outbound-Typen.
    Eingehend? → schlicht `DEPOSIT`, kein Pattern-Matching.
-5. Unit-Test in `transform.test.ts` + Zeile in `tr-sample.csv`, Fixture-Zähler anpassen.
-6. Versions-Bump (meist *minor*) + CHANGELOG.
+5. Hängt die Bedeutung von **anderen Zeilen** ab (Storno, Gegenbuchung, Bestand vor
+   einer Kapitalmaßnahme), gehört die Regel in `planSpecialRows` statt in die
+   Hauptschleife.
+6. Bargeld auf dem Portfolio-Konto nur in der Cash-Währung und vollständig umbuchen
+   (5.5 Nr. 10); Kommentare bestehender Typen nicht ändern (5.5 Nr. 8).
+7. Was nicht importiert wird, mit `kind` und – bei `missing` – `hint` melden (5.5 Nr. 6).
+8. Unit-Test in `transform.test.ts` + Zeile in `tr-sample.csv`, Fixture-Zähler anpassen.
+   Mit einem echten Export prüfen, dass das Cash-Konto auf den TR-Saldo kommt (Summe aus
+   `amount + fee + tax` aller Zeilen) und das Portfolio-Konto kein Bargeld hält –
+   der Export selbst kommt nicht ins Repo.
+9. Versions-Bump (meist *minor*) + CHANGELOG.
 
 ### 12.2 Neues Einstellungsfeld
 
@@ -701,11 +755,11 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
    (mit/ohne `cpname`) beachten.
 2. **`transform()` als lange `if`-Kaskade** – für viele neue Typen wäre eine
    Handler-Tabelle `Record<string, (row) => Activity[]>` übersichtlicher.
-3. **`ImportPage.tsx` (~870 Zeilen)** mischt UI und Logik; `applySecurityMappings`,
+3. **`ImportPage.tsx` (~900 Zeilen)** mischt UI und Logik; `applySecurityMappings`,
    `activityStatus` und der Payload-Bau in `handleImport` ließen sich in ein
    testbares Modul (z. B. `importer.ts`) auslagern.
 4. **Sequenzieller Import**: ein SDK-Aufruf pro Aktivität – langsam bei großen
-   Dateien; Fehler pro Aktivität werden nur gezählt, nicht angezeigt.
+   Dateien; Fehler pro Aktivität werden nur gezählt, nicht angezeigt (Backlog #11).
 5. **`saveMany` und `assets.create`** sind deklariert, aber ungenutzt.
 6. **Keine UI-Tests**; abgesichert sind nur die Transformer, `formats.ts` und
    `tradeFinalCash`. Insbesondere die Zusammenarbeit mit Wealthfolio (`checkImport`,
@@ -725,6 +779,10 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
     (Stufen 2 und 3) stammen aus der importierten Datei – bei unvollständiger Historie werden die
     Zeilen übersprungen; ein späterer Import mit längerer Historie kann einen anderen
     `unitPrice` ergeben und wird dann nicht als Duplikat erkannt.
+13. **Nur am Wealthfolio-Quellcode geprüft, nicht im echten Wealthfolio:** `SPLIT` mit
+    dem Verhältnis in `amount`, `DIVIDEND_IN_KIND`, `SELL` zu 0 (`WORTHLESS`) und
+    `quoteMode: "MANUAL"` für „custom“-Aktien. Erst ein echter Import zeigt, ob
+    `checkImport` sie annimmt.
 
 ---
 
@@ -898,6 +956,9 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
   Sommer/Winter, jeder Typ, Storno, Umzug, `SWAP_OUT`, Rückzahlung, Formaterkennung,
   `tradeFinalCash`, Fixture-Integration).
   Die Tests laufen unabhängig von der Zeitzone des Rechners.
+- Seit 2.5.0 tragen auch Scalable-Zeilen in `skipped` ein `kind`: Storno, Depotumzug
+  und Umzugs-Bargeld sind `netted`; unbekannter Typ, `SWAP_OUT` ohne Gegenzeile, Zeile
+  ohne Typ und ISIN sowie negative Dividende ohne Original sind `missing` mit Hinweis.
 - Rezept für neue Scalable-Typen: neuen `case` in Pass 4 von `transformScalable`
   ergänzen (bzw. einen eigenen Pass, wenn Zeilen paarweise verrechnet werden müssen),
   Zeile in `scalable-sample.csv` und Zähler im Fixture-Test anpassen.
@@ -917,15 +978,17 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.0.1 | Änderung | Suchfeld im Security-Mapping ist mit dem **Wertpapiernamen** (jüngster Name aus der Datei) statt der ISIN vorbelegt. | `SecurityMappingStep.tsx`, `ImportPage.tsx` | 6.2, 7 |
 | 2.0.2 | Fix | Erneut importierte **`BUY`/`SELL`** werden als Duplikat erkannt (vorher doppelt angelegt). Trades tragen den exakten `amount` (`tradeFinalCash`). | `common.ts`, `transform.ts`, `scalable.ts` | 5.5 Nr. 7, 6.4 |
 | 2.1.0 | Feature | **Update-Hinweis:** einmal täglich Abfrage der GitHub-Releases, Hinweis mit Download-Adresse, wenn eine neuere Version existiert. Neue Berechtigung `network` (nur `api.github.com`). | `updateCheck.ts`, `UpdateBanner.tsx`, `addon.tsx`, `manifest.json` | 4.2, 9 |
-| 2.5.0 | Feature | TR-Kapitalmaßnahmen Stufe 3: `SPLIT` als Wealthfolio-`SPLIT` (Verhältnis aus dem Bestand der Datei), `STOCK_DIVIDEND` als `DIVIDEND`/`DIVIDEND_IN_KIND` (+n/−n-Umbuchung verrechnet), `DIVIDEND_REINVESTMENT` mit seiner negativen Dividendenzeile als vom Cash-Konto finanzierter `BUY`. Übersprungene Zeilen tragen `kind` (`netted`/`missing`) und `hint`; die UI zeigt Status und Hinweis. Vorlauf `mapCorporateActions` + `dividendCorrections` → `planSpecialRows`. | `transform.ts`, `scalable.ts`, `types.ts`, `ImportPage.tsx` | 5.4, 5.5 Nr. 6, 16.3 |
-| 2.4.0 | Fix (Datenänderung) | Dividenden in Fremdwährung werden in der Auszahlungswährung (EUR) gebucht statt in USD/ZAR mit `fxRate` – vorher blieben USD-/ZAR-Guthaben und ein EUR-Minus auf dem Portfolio-Konto. Negative Dividenden (Stornos) werden verrechnet bzw. übersprungen statt als positive Dividende gebucht. **Bereits importierte Fremdwährungs-Dividenden gelten nicht mehr als Duplikat** und müssen vor dem Neuimport gelöscht werden. | `transform.ts` | 5.4, 5.5 Nr. 10 |
-| 2.3.1 | Fix | Als „custom“ gemappte **Aktien** ohne Marktdaten (z. B. delistet) werden als manuell bepreist angelegt, statt von `checkImport` mit „Could not find … in market data“ abgelehnt zu werden – vorher scheiterten alle Aktivitäten einer solchen ISIN. | `ImportPage.tsx` | 6.2 |
-| 2.3.0 | Feature | TR-Kapitalmaßnahmen Stufe 2: Wertpapierwechsel (`SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION`, `REVERSE_SPLIT`) als ungepaartes `TRANSFER_OUT`/`TRANSFER_IN` mit übertragenem Einstandswert (FIFO aus der Datei), `WORTHLESS` als `SELL` zu 0. | `transform.ts` | 5.4, 5.5 Nr. 9, 16.2 |
-| 2.2.0 | Feature | Weitere TR-CASH-Typen: `DISTRIBUTION` und `EXCHANGE` wie Dividende, Vorabpauschale (`EARNINGS`, `PRE_DETERMINED_TAX_BASE`) und Steuerkorrekturen (`SEC_ACCOUNT`, `TAX_OPTIMIZATION`) als `TAX`/`CREDIT`-`TAX_REFUND`, `REFERRAL` als `CREDIT`/`BONUS`. | `transform.ts` | 5.4, 5.5 Nr. 8, 16 |
 | 2.1.1 | Pflege | Autor `waldonso2` in `manifest.json`/`package.json`, `.github/FUNDING.yml` (Spenden an den ursprünglichen Autor) entfernt, MIT-Copyright des ursprünglichen Autors bleibt in `LICENSE`; README gekürzt und korrigiert, mit Credits für das Original-Addon. Kein Verhaltenswechsel. | `manifest.json`, `package.json`, `LICENSE`, `README.md` | – |
+| 2.2.0 | Feature | Weitere TR-CASH-Typen: `DISTRIBUTION` und `EXCHANGE` wie Dividende, Vorabpauschale (`EARNINGS`, `PRE_DETERMINED_TAX_BASE`) und Steuerkorrekturen (`SEC_ACCOUNT`, `TAX_OPTIMIZATION`) als `TAX`/`CREDIT`-`TAX_REFUND`, `REFERRAL` als `CREDIT`/`BONUS`. | `transform.ts` | 5.4, 5.5 Nr. 8, 16 |
+| 2.3.0 | Feature | TR-Kapitalmaßnahmen Stufe 2: Wertpapierwechsel (`SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION`, `REVERSE_SPLIT`) als ungepaartes `TRANSFER_OUT`/`TRANSFER_IN` mit übertragenem Einstandswert (FIFO aus der Datei), `WORTHLESS` als `SELL` zu 0. | `transform.ts` | 5.4, 5.5 Nr. 9, 16.2 |
+| 2.3.1 | Fix (kein eigenes Release) | Als „custom“ gemappte **Aktien** ohne Marktdaten (z. B. delistet) werden als manuell bepreist angelegt, statt von `checkImport` mit „Could not find … in market data“ abgelehnt zu werden – vorher scheiterten alle Aktivitäten einer solchen ISIN. | `ImportPage.tsx` | 6.2 |
+| 2.4.0 | Fix (Datenänderung) | Dividenden in Fremdwährung werden in der Auszahlungswährung (EUR) gebucht statt in USD/ZAR mit `fxRate` – vorher blieben USD-/ZAR-Guthaben und ein EUR-Minus auf dem Portfolio-Konto. Negative Dividenden (Stornos) werden verrechnet bzw. übersprungen statt als positive Dividende gebucht. **Bereits importierte Fremdwährungs-Dividenden gelten nicht mehr als Duplikat** und müssen vor dem Neuimport gelöscht werden. | `transform.ts` | 5.4, 5.5 Nr. 10 |
+| 2.5.0 | Feature | TR-Kapitalmaßnahmen Stufe 3: `SPLIT` als Wealthfolio-`SPLIT` (Verhältnis aus dem Bestand der Datei), `STOCK_DIVIDEND` als `DIVIDEND`/`DIVIDEND_IN_KIND` (+n/−n-Umbuchung verrechnet), `DIVIDEND_REINVESTMENT` mit seiner negativen Dividendenzeile als vom Cash-Konto finanzierter `BUY`. Übersprungene Zeilen tragen `kind` (`netted`/`missing`) und `hint`; die UI zeigt Status und Hinweis. Vorlauf `mapCorporateActions` + `dividendCorrections` → `planSpecialRows`. | `transform.ts`, `scalable.ts`, `types.ts`, `ImportPage.tsx` | 5.4, 5.5 Nr. 6, 16.3 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).
+2.3.1 wurde nicht als eigenes Release veröffentlicht (der Release-Lauf bekam keinen
+Runner und wurde abgebrochen); die Änderung ist in v2.4.0 enthalten.
 
 ---
 
@@ -933,7 +996,7 @@ Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschni
 
 Ein echter TR-Export (587 Zeilen) enthielt 95 Zeilen in 15 Typen, die bis 2.1.1 in
 `skipped` landeten. Die CASH-Typen davon verschoben den Barbestand in Wealthfolio um
-gut 900 €. Umsetzung in drei Stufen:
+gut 900 €. Umsetzung in drei Stufen; Stand 2.5.0 sind alle 15 Typen abgebildet.
 
 ### 16.1 Stufe 1 – CASH-Typen (umgesetzt in 2.2.0)
 
@@ -986,3 +1049,20 @@ Entscheidungen bei der Umsetzung:
 
 An einem echten Export stimmt danach das Cash-Konto auf den Cent mit Trade Republic
 überein, und das Portfolio-Konto hält kein Bargeld.
+
+### 16.4 Ergebnis und Nebenbefunde
+
+Mit 2.5.0 und dem echten Export von oben:
+
+- Übersprungen bleiben 4 Zeilen, alle `netted` (ein Dividenden-Storno mit Neubuchung,
+  eine Aktiendividenden-Umbuchung).
+- Das Cash-Konto kommt auf den Cent auf den TR-Saldo (Summe aus `amount + fee + tax`
+  aller Zeilen), das Portfolio-Konto hält kein Bargeld.
+
+Beim Abgleich fielen drei Fehler außerhalb der neuen Typen auf und wurden behoben:
+
+| Befund | Ursache | Behoben in |
+|---|---|---|
+| Alle Aktivitäten einer delisteten Aktie (VARTA) scheiterten mit „Could not find … in market data“ | „custom“-Mapping ohne `quoteMode: "MANUAL"` (6.2 Schritt 5) | 2.3.1 |
+| Portfolio-Konto mit USD-/ZAR-Guthaben und EUR-Minus | Dividenden in Fremdwährung gebucht, Steuer und Umbuchung in EUR (5.5 Nr. 10) | 2.4.0 |
+| Stornierte Dividenden als zusätzliche Dividende gebucht | `Math.abs` auf negativen Betrag | 2.4.0 |
