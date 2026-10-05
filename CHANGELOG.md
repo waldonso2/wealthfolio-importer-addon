@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.0] - 2026-10-05
+
+### Added
+
+- Trade Republic corporate actions that swap one ISIN for another (`SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION`, `REVERSE_SPLIT`) are imported as a TRANSFER_OUT of the old and a TRANSFER_IN of the new ISIN. The new position takes over the old one's cost basis, computed FIFO from the buys and sells in the same file. If the file doesn't contain the shares (incomplete history), both rows are listed as skipped.
+- `WORTHLESS` write-offs are imported as a SELL at 0, which realises the loss.
+- Splits, stock dividends and dividend reinvestments are still listed as skipped.
+
 ## [2.2.0] - 2026-10-05
 
 ### Added

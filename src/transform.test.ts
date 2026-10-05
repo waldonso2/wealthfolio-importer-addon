@@ -412,6 +412,109 @@ describe("REFERRAL", () => {
   });
 });
 
+describe("Corporate actions", () => {
+  const buy = (overrides: Partial<TrRow>) =>
+    row({ category: "TRADING", type: "BUY", symbol: "OLD1", name: "Old Co", asset_class: "STOCK", ...overrides });
+  const action = (type: string, symbol: string, shares: string, overrides: Partial<TrRow> = {}) =>
+    row({
+      category: "CORPORATE_ACTION",
+      type,
+      symbol,
+      name: symbol === "NEW1" ? "New Co" : "Old Co",
+      shares,
+      asset_class: "STOCK",
+      currency: "",
+      datetime: "2024-06-01T22:00:00.000Z",
+      transaction_id: `${type}-${symbol}`,
+      ...overrides,
+    });
+
+  it.each([
+    ["SHARE_EXCHANGE", "Share exchange"],
+    ["ADR_DISCONTINUATION", "ADR discontinuation"],
+    ["REORGANISATION", "Reorganisation"],
+  ])("%s → unpaired TRANSFER_OUT old ISIN + TRANSFER_IN new ISIN carrying the cost basis", (type, label) => {
+    const { activities, skipped } = transform(
+      [
+        buy({ shares: "10", price: "10", amount: "-100", fee: "-1", transaction_id: "b1" }),
+        action(type, "OLD1", "-10"),
+        action(type, "NEW1", "10"),
+      ],
+      CONFIG,
+    );
+    expect(skipped).toHaveLength(0);
+    const out = activities.find((a) => a.activityType === "TRANSFER_OUT" && a.symbol === "OLD1")!;
+    const inn = activities.find((a) => a.activityType === "TRANSFER_IN" && a.symbol === "NEW1")!;
+    expect(out).toMatchObject({ accountId: "portfolio", quantity: "10", unitPrice: "10.1", currency: "EUR" });
+    expect(inn).toMatchObject({ accountId: "portfolio", quantity: "10", unitPrice: "10.1", symbolName: "New Co" });
+    expect(out.comment).toContain(`${label}: OLD1 -> NEW1`);
+    // different assets can't be a Wealthfolio transfer pair
+    expect(out.transferGroupId).toBeUndefined();
+    expect(inn.transferGroupId).toBeUndefined();
+    expect(new Date(inn.date as string).getTime()).toBeGreaterThan(new Date(out.date as string).getTime());
+  });
+
+  it("REVERSE_SPLIT with a new ISIN spreads the cost basis over the new share count", () => {
+    const { activities } = transform(
+      [
+        buy({ shares: "25000", price: "0.04", amount: "-1000", fee: "-1" }),
+        action("REVERSE_SPLIT", "OLD1", "-25000"),
+        action("REVERSE_SPLIT", "NEW1", "38.461538"),
+      ],
+      CONFIG,
+    );
+    const inn = activities.find((a) => a.activityType === "TRANSFER_IN" && a.symbol === "NEW1")!;
+    expect(inn.quantity).toBe("38.461538");
+    expect(Number(inn.quantity) * Number(inn.unitPrice)).toBeCloseTo(1001, 4);
+  });
+
+  it("cost basis follows FIFO after a partial sale, regardless of row order in the file", () => {
+    const { activities } = transform(
+      [
+        action("SHARE_EXCHANGE", "NEW1", "5"),
+        action("SHARE_EXCHANGE", "OLD1", "-5"),
+        row({ category: "TRADING", type: "SELL", symbol: "OLD1", shares: "-5", price: "30", amount: "150", datetime: "2024-03-01T10:00:00.000Z" }),
+        buy({ shares: "5", price: "20", amount: "-100", datetime: "2024-02-01T10:00:00.000Z" }),
+        buy({ shares: "5", price: "10", amount: "-50", datetime: "2024-01-01T10:00:00.000Z" }),
+      ],
+      CONFIG,
+    );
+    // the 10 € lot was sold first, the 20 € lot is exchanged
+    expect(activities.find((a) => a.activityType === "TRANSFER_IN" && a.symbol === "NEW1")!.unitPrice).toBe("20");
+  });
+
+  it("is skipped when the file doesn't hold the outgoing shares (cost basis unknown)", () => {
+    const { activities, skipped } = transform(
+      [buy({ shares: "4", price: "10", amount: "-40" }), action("SHARE_EXCHANGE", "OLD1", "-10"), action("SHARE_EXCHANGE", "NEW1", "10")],
+      CONFIG,
+    );
+    expect(activities.filter((a) => a.activityType.startsWith("TRANSFER_") && a.symbol !== "$CASH-EUR")).toHaveLength(0);
+    expect(skipped).toHaveLength(2);
+    expect(skipped[0].reason).toContain("cost basis of OLD1 unknown");
+  });
+
+  it("is skipped when the legs don't form one out/in pair", () => {
+    const { skipped } = transform([buy({ shares: "10", price: "10", amount: "-100" }), action("SHARE_EXCHANGE", "OLD1", "-10")], CONFIG);
+    expect(skipped[0].reason).toContain("expected one outgoing and one incoming ISIN");
+  });
+
+  it("WORTHLESS → SELL at 0 without a cash transfer", () => {
+    const { activities } = transform(
+      [buy({ shares: "15", price: "100", amount: "-1500" }), action("WORTHLESS", "OLD1", "-15")],
+      CONFIG,
+    );
+    const sell = activities.find((a) => a.activityType === "SELL")!;
+    expect(sell).toMatchObject({ symbol: "OLD1", quantity: "15", unitPrice: "0", fee: "0", amount: "0" });
+    expect(sell.comment).toContain("written off as worthless");
+    expect(activities.filter((a) => a.activityType === "TRANSFER_OUT")).toHaveLength(1); // only the BUY funding
+  });
+
+  it("other corporate actions are skipped as unsupported", () => {
+    const { skipped } = transform([action("STOCK_DIVIDEND", "OLD1", "1")], CONFIG);
+    expect(skipped[0].reason).toBe("Unsupported corporate action: STOCK_DIVIDEND");
+  });
+});
+
 describe("INTEREST", () => {
   it("INTEREST_PAYMENT → INTEREST with optional tax", () => {
     const { activities } = transform(
@@ -615,12 +718,12 @@ describe("CSV fixture integration", () => {
 
   const { activities, skipped } = transform(rows, CONFIG);
 
-  it("parses 18 rows without errors", () => {
-    expect(rows).toHaveLength(18);
+  it("parses 22 rows without errors", () => {
+    expect(rows).toHaveLength(22);
   });
 
-  it("produces 25 activities and 1 skipped (MIGRATION)", () => {
-    expect(activities).toHaveLength(25);
+  it("produces 31 activities and 1 skipped (MIGRATION)", () => {
+    expect(activities).toHaveLength(31);
     expect(skipped).toHaveLength(1);
     expect(skipped[0].type).toBe("MIGRATION");
   });
@@ -696,8 +799,8 @@ describe("CSV fixture integration", () => {
       (a) => a.activityType === "TRANSFER_OUT" || a.activityType === "TRANSFER_IN",
     );
     const grouped = transfers.filter((a) => a.transferGroupId);
-    // BUY, DIVIDEND and DISTRIBUTION funding pairs = 3 pairs = 6 legs (SELL isn't in this fixture)
-    expect(grouped).toHaveLength(6);
+    // BUY (2), DIVIDEND and DISTRIBUTION funding pairs = 4 pairs = 8 legs (SELL isn't in this fixture)
+    expect(grouped).toHaveLength(8);
     for (const groupId of new Set(grouped.map((a) => a.transferGroupId))) {
       expect(grouped.filter((a) => a.transferGroupId === groupId)).toHaveLength(2);
     }
@@ -764,5 +867,14 @@ describe("CSV fixture integration", () => {
     expect(by("Referral bonus")[0]).toMatchObject({ activityType: "CREDIT", subtype: "BONUS", amount: "50" });
     expect(by("Advance lump-sum tax")[0]).toMatchObject({ activityType: "TAX", amount: "0.33" });
     expect(by("Tax optimisation")[0]).toMatchObject({ activityType: "CREDIT", subtype: "TAX_REFUND", amount: "1.25" });
+  });
+
+  it("SHARE_EXCHANGE moves the Apple position to the new ISIN at its cost; WORTHLESS sells at 0", () => {
+    const out = activities.find((a) => a.activityType === "TRANSFER_OUT" && a.symbol === "US0378331005")!;
+    const inn = activities.find((a) => a.activityType === "TRANSFER_IN" && a.symbol === "US0000000001")!;
+    expect(out).toMatchObject({ quantity: "0.1", unitPrice: "160" });
+    expect(inn).toMatchObject({ quantity: "0.1", unitPrice: "160" });
+    const sell = activities.find((a) => a.activityType === "SELL" && a.symbol === "DE0000000002")!;
+    expect(sell).toMatchObject({ quantity: "5", unitPrice: "0", amount: "0" });
   });
 });

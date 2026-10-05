@@ -49,7 +49,9 @@ broker you use. Optionally add **transfer patterns** (see below).
 | Interest, card fee, Saveback, referral bonus | INTEREST, FEE, CREDIT (bonus) |
 | Gifted shares (Stockperk), share delivery | BUY funded by a bonus credit, TRANSFER_IN |
 | ISIN migration | skipped |
-| Corporate actions (splits, share exchanges, stock dividends, …) | not yet supported, listed as skipped |
+| Share exchange, ADR discontinuation, reorganisation, reverse split into a new ISIN | TRANSFER_OUT of the old and TRANSFER_IN of the new ISIN, carrying the cost basis (computed from the file) |
+| Worthless write-off | SELL at 0 |
+| Splits, stock dividends, dividend reinvestment | not yet supported, listed as skipped |
 
 **Scalable Capital**
 
