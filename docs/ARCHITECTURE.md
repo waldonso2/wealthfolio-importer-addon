@@ -589,7 +589,6 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 |---|---|---|
 | `ci.yml` | PR auf `main` (außer Label `skip-ci`) | install → `type-check` → `test` → `build` |
 | `release.yml` | Push auf `main` (außer `[skip-release]` in Commit-Message) | install → `type-check` → `test` → `bundle` → falls Tag `v<manifest.version>` fehlt: GitHub-Release mit CHANGELOG-Abschnitt, ZIP und `addon.js` |
-| `opencode.yml` | Kommentar mit `/oc` bzw. `/opencode` | OpenCode-Agent (unabhängig vom Build) |
 
 **Release-Gate:** Ein Release entsteht nur durch Versions-Bump. Bei Logikänderungen
 (`src/`, Manifest-Berechtigungen/Metadaten) Version in **`manifest.json` und
@@ -686,9 +685,8 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
    Anlegen von Aktivitäten) ist nur am echten Addon prüfbar.
 7. **STOCKPERK-Zuordnung** ist O(n·m) und matcht nur über Symbol/Datum/Betrag –
    bei zwei identischen Käufen am selben Tag gewinnt der erste.
-8. **`opencode.yml`** hat uneinheitliche Einrückung unter `steps:` (7 vs. 8 Leerzeichen)
-   und ist dadurch kein gültiges YAML (Parser-Fehler in Zeile 25) – der Workflow kann so
-   nicht laufen (Stand 2.0.2 weiterhin so).
+8. ~~**`opencode.yml`** war kein gültiges YAML~~ – erledigt: der Workflow wurde
+   entfernt (nach 2.2.0, ohne Versionssprung).
 9. **Doppelte Trades aus Versionen ≤ 2.0.1:** Wer eine Datei damals erneut importiert hat,
    hat doppelte `BUY`/`SELL` in Wealthfolio (siehe 6.4). Das Addon bereinigt sie nicht.
 10. **Scalable-Annahmen** (14.3, „Offene Einzelfälle") sind nur an einem echten Export
@@ -894,7 +892,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.1.1 | Pflege | Autor `waldonso2` in `manifest.json`/`package.json`, `.github/FUNDING.yml` (Spenden an den ursprünglichen Autor) entfernt, MIT-Copyright des ursprünglichen Autors bleibt in `LICENSE`; README gekürzt und korrigiert, mit Credits für das Original-Addon. Kein Verhaltenswechsel. | `manifest.json`, `package.json`, `LICENSE`, `README.md` | – |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
-(Teil von PR #3).
+(Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).
 
 ---
 
