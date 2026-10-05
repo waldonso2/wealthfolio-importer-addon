@@ -70,12 +70,20 @@ export interface AddonSettings {
   securityMappings: Record<string, SecurityMapping>;
 }
 
+// "netted": skipped on purpose, its effect is already covered (a reversal and the
+// row it cancels, a technical rebooking) - nothing to do. "missing": not
+// imported - Wealthfolio will differ from the broker until the user adds it.
+export type SkipKind = "netted" | "missing";
+
 export interface SkippedRow {
   datetime: string;
   type: string;
   category: string;
   description: string;
   reason: string;
+  kind?: SkipKind;
+  // What the user can do about a "missing" row.
+  hint?: string;
 }
 
 // ActivityImport (the CSV-import-shaped SDK type) has no sourceGroupId field —
