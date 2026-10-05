@@ -417,16 +417,18 @@ describe("Dividend corrections", () => {
     const dividends = activities.filter((a) => a.activityType === "DIVIDEND");
     expect(dividends).toHaveLength(1);
     expect(dividends[0].date).toBe("2025-05-13T09:44:22.000Z");
-    expect(skipped.map((s) => s.reason)).toEqual([
-      "DIVIDEND reversal: cancels out with the DIVIDEND of the same day",
-      "DIVIDEND cancelled by the reversal of 2025-06-03",
+    expect(skipped.map((s) => [s.reason, s.kind])).toEqual([
+      ["Reversal of the dividend of the same day; the two rows cancel out.", "netted"],
+      ["Cancelled by the reversal of 2025-06-03; the two rows cancel out.", "netted"],
     ]);
   });
 
   it("a negative dividend without a matching partner is skipped, never booked as income", () => {
     const { activities, skipped } = transform([div("-23.2", "", "2025-03-26T16:01:14.000Z", "neg")], CONFIG);
     expect(activities).toHaveLength(0);
-    expect(skipped[0].reason).toContain("negative amount and no matching DIVIDEND");
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].reason).toContain("Negative dividend of 23.2 EUR for Example AG");
+    expect(skipped[0].hint).toContain("Trade Republic debited this amount");
   });
 });
 
@@ -547,12 +549,14 @@ describe("Corporate actions", () => {
     );
     expect(activities.filter((a) => a.activityType.startsWith("TRANSFER_") && a.symbol !== "$CASH-EUR")).toHaveLength(0);
     expect(skipped).toHaveLength(2);
-    expect(skipped[0].reason).toContain("cost basis of OLD1 unknown");
+    expect(skipped[0].reason).toContain("the cost basis is unknown because this file holds only 4 of the 10 exchanged shares");
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].hint).toContain("complete transaction history");
   });
 
   it("is skipped when the legs don't form one out/in pair", () => {
     const { skipped } = transform([buy({ shares: "10", price: "10", amount: "-100" }), action("SHARE_EXCHANGE", "OLD1", "-10")], CONFIG);
-    expect(skipped[0].reason).toContain("expected one outgoing and one incoming ISIN");
+    expect(skipped[0].reason).toContain("expected one outgoing and one incoming ISIN at the same time, found 1 outgoing and 0 incoming");
   });
 
   it("WORTHLESS → SELL at 0 without a cash transfer", () => {
@@ -566,9 +570,96 @@ describe("Corporate actions", () => {
     expect(activities.filter((a) => a.activityType === "TRANSFER_OUT")).toHaveLength(1); // only the BUY funding
   });
 
-  it("other corporate actions are skipped as unsupported", () => {
-    const { skipped } = transform([action("STOCK_DIVIDEND", "OLD1", "1")], CONFIG);
-    expect(skipped[0].reason).toBe("Unsupported corporate action: STOCK_DIVIDEND");
+  it("SPLIT → Wealthfolio SPLIT with ratio (held + n) / held from the file", () => {
+    const { activities } = transform(
+      [buy({ shares: "1", price: "3000", amount: "-3000" }), action("SPLIT", "OLD1", "19")],
+      CONFIG,
+    );
+    const split = activities.find((a) => a.activityType === "SPLIT")!;
+    expect(split).toMatchObject({ accountId: "portfolio", symbol: "OLD1", amount: "20" });
+    expect(split.comment).toContain("split 20:1 (1 -> 20 shares)");
+  });
+
+  it("the share count after a SPLIT feeds later corporate actions", () => {
+    const { activities } = transform(
+      [
+        buy({ shares: "1", price: "100", amount: "-100" }),
+        action("SPLIT", "OLD1", "19", { datetime: "2024-03-01T22:00:00.000Z" }),
+        action("SHARE_EXCHANGE", "OLD1", "-20"),
+        action("SHARE_EXCHANGE", "NEW1", "20"),
+      ],
+      CONFIG,
+    );
+    expect(activities.find((a) => a.activityType === "TRANSFER_IN" && a.symbol === "NEW1")!.unitPrice).toBe("5");
+  });
+
+  it("SPLIT without shares in the file is skipped with a hint", () => {
+    const { skipped } = transform([action("SPLIT", "OLD1", "19")], CONFIG);
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].reason).toContain("split ratio can't be derived");
+  });
+
+  it("STOCK_DIVIDEND → DIVIDEND/DIVIDEND_IN_KIND; a later +n/-n rebooking cancels out", () => {
+    const { activities, skipped } = transform(
+      [
+        action("STOCK_DIVIDEND", "OLD1", "58.98", { price: "1.1796", datetime: "2023-09-13T22:49:41.000Z", transaction_id: "sd1" }),
+        action("STOCK_DIVIDEND", "OLD1", "58.98", { price: "1.1796", datetime: "2024-01-26T17:40:18.000Z", date: "2024-01-26", transaction_id: "sd2" }),
+        action("STOCK_DIVIDEND", "OLD1", "-58.98", { price: "1.1796", datetime: "2024-01-26T22:45:48.000Z", date: "2024-01-26", transaction_id: "sd3" }),
+      ],
+      CONFIG,
+    );
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      accountId: "portfolio",
+      activityType: "DIVIDEND",
+      subtype: "DIVIDEND_IN_KIND",
+      symbol: "OLD1",
+      quantity: "58.98",
+      unitPrice: "1.1796",
+      amount: "69.572808",
+      date: "2023-09-13T22:49:41.000Z",
+    });
+    expect(skipped.map((s) => s.kind)).toEqual(["netted", "netted"]);
+  });
+
+  it("STOCK_DIVIDEND without a price is skipped with a hint", () => {
+    const { skipped } = transform([action("STOCK_DIVIDEND", "OLD1", "5")], CONFIG);
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].reason).toContain("without a value per share");
+  });
+
+  it("DIVIDEND_REINVESTMENT + its negative DIVIDEND row → BUY funded from the cash account", () => {
+    const { activities, skipped } = transform(
+      [
+        row({ category: "CASH", type: "DIVIDEND", symbol: "OLD1", name: "Old Co", shares: "70", amount: "23.21", tax: "-6.11", datetime: "2025-03-26T15:58:52.000Z", transaction_id: "cashdiv" }),
+        action("DIVIDEND_REINVESTMENT", "OLD1", "0.726204", { datetime: "2025-03-26T16:00:56.000Z", transaction_id: "drip" }),
+        row({ category: "CASH", type: "DIVIDEND", symbol: "OLD1", name: "Old Co", shares: "70", amount: "-23.2", datetime: "2025-03-26T16:01:14.000Z", transaction_id: "debit" }),
+      ],
+      CONFIG,
+    );
+    expect(skipped).toHaveLength(0);
+    // the cash dividend is booked once as income
+    expect(activities.filter((a) => a.activityType === "DIVIDEND")).toHaveLength(1);
+    const buy = activities.find((a) => a.activityType === "BUY")!;
+    expect(buy).toMatchObject({ accountId: "portfolio", symbol: "OLD1", quantity: "0.726204", fee: "0" });
+    expect(Number(buy.amount)).toBeCloseTo(23.2, 8);
+    const out = activities.find((a) => a.activityType === "TRANSFER_OUT" && a.accountId === "cash")!;
+    const inn = activities.find((a) => a.activityType === "TRANSFER_IN" && a.accountId === "portfolio")!;
+    expect(out).toMatchObject({ amount: "23.2", transferGroupId: "buy-drip" });
+    expect(inn).toMatchObject({ amount: "23.2", transferGroupId: "buy-drip" });
+  });
+
+  it("DIVIDEND_REINVESTMENT without a cash debit is skipped with a hint", () => {
+    const { skipped } = transform([action("DIVIDEND_REINVESTMENT", "OLD1", "0.5")], CONFIG);
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].hint).toContain("BUY");
+  });
+
+  it("other corporate actions are skipped as not imported, with the share change and a hint", () => {
+    const { skipped } = transform([action("SPIN_OFF", "OLD1", "3")], CONFIG);
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].reason).toBe("Corporate action SPIN_OFF isn't supported yet, so Old Co wasn't changed (+3 shares).");
+    expect(skipped[0].hint).toContain("Add the change manually");
   });
 });
 
@@ -713,7 +804,16 @@ describe("Unknown types", () => {
     );
     expect(activities).toHaveLength(0);
     expect(skipped).toHaveLength(1);
-    expect(skipped[0].reason).toContain("Unknown CASH type");
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].reason).toContain("CASH/UNKNOWN_FUTURE_TYPE isn't supported yet");
+    expect(skipped[0].hint).toContain("doesn't move cash");
+  });
+
+  it("an unknown CASH type that moved money says by how much", () => {
+    const { skipped } = transform([row({ category: "CASH", type: "NEW_THING", amount: "-12.5", fee: "-1" })], CONFIG);
+    expect(skipped[0].hint).toBe(
+      "It changed your Trade Republic cash by -13.5 EUR. Add it manually in Wealthfolio and report the type so it can be supported.",
+    );
   });
 
   it("unknown category goes to skipped", () => {
@@ -722,7 +822,7 @@ describe("Unknown types", () => {
       CONFIG,
     );
     expect(activities).toHaveLength(0);
-    expect(skipped[0].reason).toContain("Unknown category");
+    expect(skipped[0].reason).toContain("category UNKNOWN_CATEGORY/SOMETHING isn't supported yet");
   });
 });
 
