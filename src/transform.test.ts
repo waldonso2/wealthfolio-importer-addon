@@ -314,6 +314,104 @@ describe("DIVIDEND", () => {
   });
 });
 
+describe("Dividend-like CASH types", () => {
+  it("DISTRIBUTION is booked like a dividend (DIVIDEND + TAX + grouped transfer to cash)", () => {
+    const { activities, skipped } = transform(
+      [
+        row({
+          category: "CASH",
+          type: "DISTRIBUTION",
+          symbol: "IE00B3F81R35",
+          name: "Example Bond (Dist)",
+          shares: "10",
+          amount: "2",
+          tax: "-0.5",
+          original_amount: "2.20",
+          original_currency: "USD",
+          fx_rate: "1.1",
+          transaction_id: "d1",
+        }),
+      ],
+      CONFIG,
+    );
+    expect(skipped).toHaveLength(0);
+    expect(activities.map((a) => a.activityType).sort()).toEqual(["DIVIDEND", "TAX", "TRANSFER_IN", "TRANSFER_OUT"]);
+    const div = activities.find((a) => a.activityType === "DIVIDEND")!;
+    expect(div.amount).toBe("2.20");
+    expect(div.currency).toBe("USD");
+    expect(div.comment).toContain("Distribution Example Bond (Dist)");
+    const out = activities.find((a) => a.activityType === "TRANSFER_OUT")!;
+    const cashIn = activities.find((a) => a.activityType === "TRANSFER_IN")!;
+    expect(out.amount).toBe("1.5");
+    expect(cashIn.accountId).toBe("cash");
+    expect(out.transferGroupId).toBe("div-d1");
+    expect(cashIn.transferGroupId).toBe("div-d1");
+  });
+
+  it("EXCHANGE (cash from a share-exchange programme) is booked like a dividend", () => {
+    const { activities } = transform(
+      [row({ category: "CASH", type: "EXCHANGE", symbol: "NL0000000001", name: "Example NV", amount: "7", tax: "-1.84" })],
+      CONFIG,
+    );
+    const div = activities.find((a) => a.activityType === "DIVIDEND")!;
+    expect(div.amount).toBe("7");
+    expect(div.comment).toContain("Exchange distribution Example NV");
+    expect(activities.find((a) => a.activityType === "TRANSFER_IN")!.amount).toBe("5.16");
+  });
+
+  it("DIVIDEND comments are unchanged so earlier imports stay duplicates", () => {
+    const { activities } = transform(
+      [row({ category: "CASH", type: "DIVIDEND", symbol: "AAPL", name: "Apple", shares: "1", amount: "2", tax: "-1" })],
+      CONFIG,
+    );
+    expect(activities.map((a) => a.comment?.replace(/ \[.*\]$/, "")).sort()).toEqual([
+      "Dividend Apple",
+      "Dividend Apple -> Cash",
+      "Dividend Apple from Portfolio",
+      "Withholding tax on dividend Apple",
+    ]);
+  });
+});
+
+describe("Tax-only CASH types", () => {
+  it.each(["EARNINGS", "PRE_DETERMINED_TAX_BASE"])("%s (Vorabpauschale) → TAX on cash", (type) => {
+    const { activities } = transform(
+      [row({ category: "CASH", type, symbol: "IE00BK5BQT80", name: "FTSE All-World", amount: "0", tax: "-0.33" })],
+      CONFIG,
+    );
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ accountId: "cash", activityType: "TAX", amount: "0.33" });
+    expect(activities[0].comment).toContain("Vorabpauschale");
+    expect(activities[0].comment).toContain("IE00BK5BQT80");
+  });
+
+  it("TAX_OPTIMIZATION / SEC_ACCOUNT: negative → TAX, positive → CREDIT/TAX_REFUND", () => {
+    const { activities } = transform(
+      [
+        row({ category: "CASH", type: "TAX_OPTIMIZATION", amount: "0", tax: "-452.54" }),
+        row({ category: "CASH", type: "SEC_ACCOUNT", amount: "0", tax: "452.6", datetime: "2024-02-01T10:00:00.000Z" }),
+      ],
+      CONFIG,
+    );
+    expect(activities[0]).toMatchObject({ accountId: "cash", activityType: "TAX", amount: "452.54" });
+    expect(activities[1]).toMatchObject({ accountId: "cash", activityType: "CREDIT", subtype: "TAX_REFUND", amount: "452.6" });
+  });
+
+  it("a tax-only row without cash effect is skipped", () => {
+    const { activities, skipped } = transform([row({ category: "CASH", type: "EARNINGS", amount: "0", tax: "0" })], CONFIG);
+    expect(activities).toHaveLength(0);
+    expect(skipped[0].reason).toContain("no cash effect");
+  });
+});
+
+describe("REFERRAL", () => {
+  it("→ CREDIT with BONUS subtype to cash", () => {
+    const { activities } = transform([row({ category: "CASH", type: "REFERRAL", amount: "50" })], CONFIG);
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ accountId: "cash", activityType: "CREDIT", subtype: "BONUS", amount: "50" });
+  });
+});
+
 describe("INTEREST", () => {
   it("INTEREST_PAYMENT → INTEREST with optional tax", () => {
     const { activities } = transform(
@@ -517,12 +615,12 @@ describe("CSV fixture integration", () => {
 
   const { activities, skipped } = transform(rows, CONFIG);
 
-  it("parses 14 rows without errors", () => {
-    expect(rows).toHaveLength(14);
+  it("parses 18 rows without errors", () => {
+    expect(rows).toHaveLength(18);
   });
 
-  it("produces 17 activities and 1 skipped (MIGRATION)", () => {
-    expect(activities).toHaveLength(18);
+  it("produces 25 activities and 1 skipped (MIGRATION)", () => {
+    expect(activities).toHaveLength(25);
     expect(skipped).toHaveLength(1);
     expect(skipped[0].type).toBe("MIGRATION");
   });
@@ -598,8 +696,8 @@ describe("CSV fixture integration", () => {
       (a) => a.activityType === "TRANSFER_OUT" || a.activityType === "TRANSFER_IN",
     );
     const grouped = transfers.filter((a) => a.transferGroupId);
-    // BUY, DIVIDEND funding pairs = 2 pairs = 4 legs (SELL isn't in this fixture)
-    expect(grouped).toHaveLength(4);
+    // BUY, DIVIDEND and DISTRIBUTION funding pairs = 3 pairs = 6 legs (SELL isn't in this fixture)
+    expect(grouped).toHaveLength(6);
     for (const groupId of new Set(grouped.map((a) => a.transferGroupId))) {
       expect(grouped.filter((a) => a.transferGroupId === groupId)).toHaveLength(2);
     }
@@ -658,5 +756,13 @@ describe("CSV fixture integration", () => {
     )!;
     expect(dep.amount).toBe("500");
     expect(dep.accountId).toBe("cash");
+  });
+
+  it("DISTRIBUTION, REFERRAL, EARNINGS and TAX_OPTIMIZATION are mapped, not skipped", () => {
+    const by = (c: string) => activities.filter((a) => a.comment?.startsWith(c));
+    expect(by("Distribution Example Bond").find((a) => a.activityType === "DIVIDEND")!.amount).toBe("2.20");
+    expect(by("Referral bonus")[0]).toMatchObject({ activityType: "CREDIT", subtype: "BONUS", amount: "50" });
+    expect(by("Advance lump-sum tax")[0]).toMatchObject({ activityType: "TAX", amount: "0.33" });
+    expect(by("Tax optimisation")[0]).toMatchObject({ activityType: "CREDIT", subtype: "TAX_REFUND", amount: "1.25" });
   });
 });

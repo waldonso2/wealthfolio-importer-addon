@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.0] - 2026-10-05
+
+### Added
+
+- Trade Republic: more CASH types are imported instead of skipped:
+  - `DISTRIBUTION` (fund/ETF distributions) and `EXCHANGE` (cash paid in a share-exchange programme) are booked like dividends: DIVIDEND + withholding TAX + transfer to cash.
+  - Vorabpauschale (`EARNINGS`, `PRE_DETERMINED_TAX_BASE`) and tax adjustments (`SEC_ACCOUNT`, `TAX_OPTIMIZATION`) become TAX on the cash account, or CREDIT (tax refund) when positive.
+  - `REFERRAL` becomes CREDIT (bonus).
+- Corporate actions (`CORPORATE_ACTION`) are still listed as skipped.
+
 ## [2.1.1] - 2026-10-05
 
 ### Changed

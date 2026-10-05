@@ -6,6 +6,24 @@ function num(s: string | undefined | null): number {
   return parseFloat(s);
 }
 
+// CASH types booked like a dividend (DIVIDEND + TAX + transfer to cash). The
+// label goes into the comments; "Dividend" must stay unchanged so already
+// imported dividends are still recognised as duplicates.
+const DIVIDEND_LIKE = new Map<string, string>([
+  ["DIVIDEND", "Dividend"],
+  ["DISTRIBUTION", "Distribution"], // fund/ETF distribution
+  ["EXCHANGE", "Exchange distribution"], // cash paid in a share-exchange programme (e.g. Prosus)
+]);
+
+// CASH types that only move tax: the cash effect is amount + tax (amount is
+// usually 0). Negative → TAX, positive → CREDIT/TAX_REFUND.
+const TAX_ONLY = new Map<string, string>([
+  ["EARNINGS", "Advance lump-sum tax (Vorabpauschale)"],
+  ["PRE_DETERMINED_TAX_BASE", "Advance lump-sum tax (Vorabpauschale)"],
+  ["SEC_ACCOUNT", "Tax adjustment"],
+  ["TAX_OPTIMIZATION", "Tax optimisation"],
+]);
+
 export function transform(rows: TrRow[], config: AddonSettings): TransformResult {
   const { cashAccountId, portfolioAccountId, transferPatterns } = config;
   const cashCurrency = config.cashCurrency || "EUR";
@@ -302,7 +320,9 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         continue;
       }
 
-      if (typ === "DIVIDEND") {
+      const label = DIVIDEND_LIKE.get(typ);
+      if (label) {
+        const lower = label.toLowerCase();
         const taxAmt = num(tax);
         const netCash = absAmt + taxAmt;
         const sharesVal = r.shares || "1";
@@ -325,12 +345,12 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
             currency: r.original_currency,
             amount: r.original_amount,
             fxRate: String(wfFx),
-            comment: `Dividend ${r.name} (${r.original_amount} ${r.original_currency})${timeTag(dt)}`,
+            comment: `${label} ${r.name} (${r.original_amount} ${r.original_currency})${timeTag(dt)}`,
             isValid: true,
             isDraft: false,
           });
           if (taxAmt) {
-            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on dividend ${r.name}${timeTag(dt)}`));
+            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
           }
         } else {
           activities.push({
@@ -343,12 +363,12 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
             quantity: sharesVal,
             currency: r.currency || cashCurrency,
             amount: fmtAmt(absAmt),
-            comment: `Dividend ${r.name}${timeTag(dt)}`,
+            comment: `${label} ${r.name}${timeTag(dt)}`,
             isValid: true,
             isDraft: false,
           });
           if (taxAmt) {
-            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on dividend ${r.name}${timeTag(dt)}`));
+            activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
           }
         }
 
@@ -359,7 +379,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
             "TRANSFER_OUT",
             tOut,
             netCash,
-            `Dividend ${r.name} -> Cash${timeTag(dt)}`,
+            `${label} ${r.name} -> Cash${timeTag(dt)}`,
             undefined,
             dividendGroupId,
           ),
@@ -370,9 +390,38 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
             "TRANSFER_IN",
             tIn,
             netCash,
-            `Dividend ${r.name} from Portfolio${timeTag(dt)}`,
+            `${label} ${r.name} from Portfolio${timeTag(dt)}`,
             undefined,
             dividendGroupId,
+          ),
+        );
+        continue;
+      }
+
+      const taxLabel = TAX_ONLY.get(typ);
+      if (taxLabel) {
+        const net = amt + num(tax);
+        const what = `${taxLabel}${r.name ? ` - ${r.name}` : ""}${r.symbol ? ` (${r.symbol})` : ""}`;
+        if (Math.round(net * 100) === 0) {
+          skipped.push({ datetime: dt, type: typ, category, description: desc, reason: `${typ}: no cash effect` });
+        } else if (net < 0) {
+          activities.push(cashAct(cashAccountId, "TAX", dt, Math.abs(net), what + timeTag(dt)));
+        } else {
+          activities.push(cashAct(cashAccountId, "CREDIT", dt, net, `${what} refund${timeTag(dt)}`, "TAX_REFUND"));
+        }
+        continue;
+      }
+
+      if (typ === "REFERRAL") {
+        const taxAmt = num(tax);
+        activities.push(
+          cashAct(
+            cashAccountId,
+            "CREDIT",
+            dt,
+            absAmt + taxAmt,
+            "Referral bonus" + (taxAmt ? ` (withholding tax ${Math.abs(taxAmt).toFixed(2)} EUR)` : "") + timeTag(dt),
+            "BONUS",
           ),
         );
         continue;
