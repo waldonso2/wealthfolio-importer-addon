@@ -61,7 +61,7 @@ Once a bump is agreed, apply it by bumping the `version` field in **both** `mani
 2. Detect the new version tag doesn't exist yet
 3. Create a GitHub release `v{version}` with the changelog section, `dist/broker-importer-addon.zip` (the installable package), and `dist/addon.js` attached
 
-This addon is registered in the wealthfolio-addons community registry as an unverified directory listing (discovery only, no in-app one-click install) — end users always install manually from the GitHub release zip, per the flow documented in `README.md`.
+This addon is not listed in the Wealthfolio store or community registry — end users always install manually from the GitHub release zip (Settings → Add-ons → Install from File), per `README.md`; the in-addon update hint (`src/updateCheck.ts`) points them to new releases.
 
 ## Two-account model
 
