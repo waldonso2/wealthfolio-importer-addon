@@ -875,12 +875,12 @@ describe("CSV fixture integration", () => {
 
   const { activities, skipped } = transform(rows, CONFIG);
 
-  it("parses 22 rows without errors", () => {
-    expect(rows).toHaveLength(22);
+  it("parses 26 rows without errors", () => {
+    expect(rows).toHaveLength(26);
   });
 
-  it("produces 31 activities and 1 skipped (MIGRATION)", () => {
-    expect(activities).toHaveLength(31);
+  it("produces 36 activities and 1 skipped (MIGRATION)", () => {
+    expect(activities).toHaveLength(36);
     expect(skipped).toHaveLength(1);
     expect(skipped[0].type).toBe("MIGRATION");
   });
@@ -956,8 +956,8 @@ describe("CSV fixture integration", () => {
       (a) => a.activityType === "TRANSFER_OUT" || a.activityType === "TRANSFER_IN",
     );
     const grouped = transfers.filter((a) => a.transferGroupId);
-    // BUY (2), DIVIDEND and DISTRIBUTION funding pairs = 4 pairs = 8 legs (SELL isn't in this fixture)
-    expect(grouped).toHaveLength(8);
+    // BUY (2), dividend reinvestment, DIVIDEND and DISTRIBUTION funding pairs = 5 pairs = 10 legs (no SELL here)
+    expect(grouped).toHaveLength(10);
     for (const groupId of new Set(grouped.map((a) => a.transferGroupId))) {
       expect(grouped.filter((a) => a.transferGroupId === groupId)).toHaveLength(2);
     }
@@ -1033,5 +1033,12 @@ describe("CSV fixture integration", () => {
     expect(inn).toMatchObject({ quantity: "0.1", unitPrice: "160" });
     const sell = activities.find((a) => a.activityType === "SELL" && a.symbol === "DE0000000002")!;
     expect(sell).toMatchObject({ quantity: "5", unitPrice: "0", amount: "0" });
+  });
+
+  it("SPLIT, STOCK_DIVIDEND and DIVIDEND_REINVESTMENT are mapped", () => {
+    expect(activities.find((a) => a.activityType === "SPLIT")).toMatchObject({ symbol: "US0000000001", amount: "4" });
+    expect(activities.find((a) => a.subtype === "DIVIDEND_IN_KIND")).toMatchObject({ symbol: "NL0000000003", quantity: "2", amount: "3" });
+    expect(activities.find((a) => a.activityType === "BUY" && a.symbol === "NL0000000003")).toMatchObject({ quantity: "0.5", unitPrice: "2" });
+    expect(skipped.map((s) => s.kind)).toEqual(["netted"]);
   });
 });
