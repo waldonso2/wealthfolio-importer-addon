@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.4.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.5.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3.
@@ -109,7 +109,7 @@ src/
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 └── __fixtures__/
-    ├── tr-sample.csv       22 Zeilen, deckt alle unterstützten TR-Typen ab
+    ├── tr-sample.csv       26 Zeilen, deckt alle unterstützten TR-Typen ab
     └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
 ```
 
@@ -297,7 +297,7 @@ Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` 
 | `TRADING/BUY` (STOCKPERK-finanziert) | P `CREDIT`/`BONUS` (t−1s) → P `BUY` (t, `amount` = `tradeFinalCash`) | – |
 | `TRADING/SELL` | P `SELL` (t, `amount` = `tradeFinalCash`) → P `TRANSFER_OUT` (t+1s, Erlös−Gebühr−Steuer) → C `TRANSFER_IN` (t+2s) | `sell-<txid>` |
 | `DELIVERY/FREE_RECEIPT` | P `TRANSFER_IN` (Wertpapier, Depotübertrag) | – |
-| `DELIVERY/MIGRATION` | → `skipped` (technischer ISIN-Wechsel) | – |
+| `DELIVERY/MIGRATION` | → `skipped` (`netted`, technischer ISIN-Wechsel) | – |
 | `CASH/STOCKPERK` | ignoriert (im BUY-Zweig verarbeitet), **nicht** in `skipped` | – |
 | `CASH/CUSTOMER_INBOUND`, `CUSTOMER_INPAYMENT` | C `DEPOSIT` | – |
 | `CASH/TRANSFER_INBOUND`, `TRANSFER_INSTANT_INBOUND` | C `DEPOSIT` (bzw. `WITHDRAWAL` bei negativem Betrag) | – |
@@ -306,15 +306,18 @@ Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` 
 | `CASH/CARD_ORDERING_FEE` | C `FEE` | – |
 | `CASH/BENEFITS_SAVEBACK` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
 | `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` | P `DIVIDEND` immer in der Auszahlungswährung (`currency`, Bruttobetrag `amount`); bei Fremdwährung steht der Originalbetrag nur im Kommentar („… (8.01 USD)“) + optional P `TAX` → P `TRANSFER_OUT` (t+1s, netto) → C `TRANSFER_IN` (t+2s). Kommentar-Präfix je Typ: „Dividend" / „Distribution" / „Exchange distribution" (Tabelle `DIVIDEND_LIKE`) | `div-<txid>` |
-| `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` mit **negativem** Betrag | Storno: hebt die zeitlich nächste Zeile derselben ISIN mit gleichem Betrag und gleicher Steuer (umgekehrtes Vorzeichen) auf, beide → `skipped` (`dividendCorrections`). Ohne Gegenstück → `skipped` (z. B. Bargeld für eine Dividenden-Wiederanlage) | – |
+| `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` mit **negativem** Betrag | Storno: hebt die zeitlich nächste Zeile derselben ISIN mit gleichem Betrag und gleicher Steuer (umgekehrtes Vorzeichen) auf, beide → `skipped` (`netted`, `planSpecialRows`). Gehört sie zu einem `DIVIDEND_REINVESTMENT`, finanziert sie dessen BUY (siehe unten). Sonst → `skipped` (`missing`) | – |
 | `CASH/EARNINGS`, `PRE_DETERMINED_TAX_BASE` (Vorabpauschale), `SEC_ACCOUNT`, `TAX_OPTIMIZATION` | Betrag = `amount + tax` (meist nur `tax`): negativ → C `TAX`, positiv → C `CREDIT`/`TAX_REFUND`, 0 → `skipped` (Tabelle `TAX_ONLY`) | – |
 | `CASH/REFERRAL` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
-| `CORPORATE_ACTION/SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION`, `REVERSE_SPLIT` | P `TRANSFER_OUT` alte ISIN (t) + P `TRANSFER_IN` neue ISIN (t+1s), beide mit `unitPrice` = Einstandswert ÷ Stück (FIFO aus derselben Datei, `mapCorporateActions`); Einstandswert unbekannt → beide Zeilen `skipped` | – (absichtlich ungepaart, siehe 16.2) |
+| `CORPORATE_ACTION/SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION`, `REVERSE_SPLIT` | P `TRANSFER_OUT` alte ISIN (t) + P `TRANSFER_IN` neue ISIN (t+1s), beide mit `unitPrice` = Einstandswert ÷ Stück (FIFO aus derselben Datei, `planSpecialRows`); Einstandswert unbekannt → beide Zeilen `skipped` (`missing`) | – (absichtlich ungepaart, siehe 16.2) |
 | `CORPORATE_ACTION/WORTHLESS` | P `SELL` zu 0 (`fee` 0, `amount` 0), keine Cash-Umbuchung | – |
-| anderer `CORPORATE_ACTION`-Typ | → `skipped` („Unsupported corporate action") | – |
+| `CORPORATE_ACTION/SPLIT` (gleiche ISIN, ±n Stück) | P `SPLIT` mit `amount` = Verhältnis (Bestand + n) ÷ Bestand, Bestand FIFO aus der Datei; ohne Bestand → `skipped` (`missing`) | – |
+| `CORPORATE_ACTION/STOCK_DIVIDEND` | P `DIVIDEND`/`DIVIDEND_IN_KIND` (`quantity` n, `unitPrice` = `price`, `amount` = n × `price`) – Wealthfolio bucht Ertrag + Zugang, ohne Bargeld. +n/−n-Umbuchung derselben ISIN → beide `skipped` (`netted`); ohne Preis → `skipped` (`missing`) | – |
+| `CORPORATE_ACTION/DIVIDEND_REINVESTMENT` + negative `CASH/DIVIDEND` derselben ISIN (≤ 7 Tage) | C `TRANSFER_OUT` (t−2s) → P `TRANSFER_IN` (t−1s) über den abgebuchten Betrag → P `BUY` n Stück; die negative Dividendenzeile erzeugt selbst nichts. Ohne Abbuchung → `skipped` (`missing`) | `buy-<txid>` |
+| anderer `CORPORATE_ACTION`-Typ | → `skipped` (`missing`, mit Stückänderung und Hinweis) | – |
 | `CASH/INTEREST_PAYMENT`, `MANUAL_CASH_TRANSFER` | C `INTEREST` + optional C `TAX` | – |
-| anderer `CASH`-Typ | → `skipped` („Unknown CASH type") | – |
-| andere `category` | → `skipped` („Unknown category") | – |
+| anderer `CASH`-Typ | → `skipped` (`missing`, Hinweis nennt die Bargeldwirkung) | – |
+| andere `category` | → `skipped` (`missing`) | – |
 
 Weitere Konventionen:
 - `instrumentType`: `asset_class === "STOCK"` → `EQUITY`, sonst `FUND`.
@@ -336,7 +339,12 @@ Weitere Konventionen:
 5. **`lineNumber` wird ausschließlich am Ende von `transform()` vergeben** und muss
    eindeutig bleiben.
 6. Unbekanntes wird **nie stillschweigend verworfen**, sondern in `skipped` mit
-   `reason` gemeldet (Ausnahme: `CASH/STOCKPERK`, das im BUY-Zweig steckt).
+   `reason` gemeldet (Ausnahmen: `CASH/STOCKPERK`, das im BUY-Zweig steckt, und die
+   negative Dividendenzeile, die eine Wiederanlage finanziert). Jede `SkippedRow` trägt
+   `kind`: `netted` (absichtlich, Wirkung ist abgedeckt – kein Handlungsbedarf) oder
+   `missing` (nicht importiert – Wealthfolio weicht ab), bei `missing` mit `hint`, was
+   der Nutzer tun kann. Die UI zeigt das als Spalte „Status“ und sortiert `missing` nach
+   oben.
 7. **`BUY`/`SELL` tragen immer `amount = tradeFinalCash(...)`** (`common.ts`): exakt
    `Menge × Stückpreis + Gebühr` (BUY) bzw. `− Gebühr` (SELL), mit BigInt statt Float
    berechnet. Wealthfolio bildet den Duplikat-Fingerabdruck (`idempotencyKey`) aus dem
@@ -581,10 +589,10 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 98 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
-- **`src/transform.test.ts`** (59 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
+- 107 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
+- **`src/transform.test.ts`** (68 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
-  `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (22 Zeilen → 31 Aktivitäten +
+  `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 36 Aktivitäten +
   1 skipped) und einzelne Fälle, inkl. der Invariante „jedes interne Paar teilt eine
   `transferGroupId`" und des exakten `amount` bei `BUY`/`SELL`.
 - **`src/scalable.test.ts`** (31 Tests, Scalable Capital): Zahlen- und Zeitzonen-Parser
@@ -713,9 +721,8 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 11. **Kein echtes Auto-Update:** Ohne Listung im Wealthfolio-Store kann das Addon neue
     Versionen nur anzeigen (4.2); Download und „Install from File" bleiben manuell.
     `UpdateBanner` ist nur im echten Addon prüfbar (Netzwerkfreigabe, Sandbox).
-12. **TR-Kapitalmaßnahmen:** `SPLIT`, `STOCK_DIVIDEND` und `DIVIDEND_REINVESTMENT` werden
-    noch übersprungen (Stufe 3, Backlog #17). Der Einstandswert bei Wertpapierwechseln
-    (Stufe 2) stammt aus der importierten Datei – bei unvollständiger Historie werden die
+12. **TR-Kapitalmaßnahmen:** Bestand und Einstandswert für Wertpapierwechsel und Splits
+    (Stufen 2 und 3) stammen aus der importierten Datei – bei unvollständiger Historie werden die
     Zeilen übersprungen; ein späterer Import mit längerer Historie kann einen anderen
     `unitPrice` ergeben und wird dann nicht als Duplikat erkannt.
 
@@ -910,6 +917,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.0.1 | Änderung | Suchfeld im Security-Mapping ist mit dem **Wertpapiernamen** (jüngster Name aus der Datei) statt der ISIN vorbelegt. | `SecurityMappingStep.tsx`, `ImportPage.tsx` | 6.2, 7 |
 | 2.0.2 | Fix | Erneut importierte **`BUY`/`SELL`** werden als Duplikat erkannt (vorher doppelt angelegt). Trades tragen den exakten `amount` (`tradeFinalCash`). | `common.ts`, `transform.ts`, `scalable.ts` | 5.5 Nr. 7, 6.4 |
 | 2.1.0 | Feature | **Update-Hinweis:** einmal täglich Abfrage der GitHub-Releases, Hinweis mit Download-Adresse, wenn eine neuere Version existiert. Neue Berechtigung `network` (nur `api.github.com`). | `updateCheck.ts`, `UpdateBanner.tsx`, `addon.tsx`, `manifest.json` | 4.2, 9 |
+| 2.5.0 | Feature | TR-Kapitalmaßnahmen Stufe 3: `SPLIT` als Wealthfolio-`SPLIT` (Verhältnis aus dem Bestand der Datei), `STOCK_DIVIDEND` als `DIVIDEND`/`DIVIDEND_IN_KIND` (+n/−n-Umbuchung verrechnet), `DIVIDEND_REINVESTMENT` mit seiner negativen Dividendenzeile als vom Cash-Konto finanzierter `BUY`. Übersprungene Zeilen tragen `kind` (`netted`/`missing`) und `hint`; die UI zeigt Status und Hinweis. Vorlauf `mapCorporateActions` + `dividendCorrections` → `planSpecialRows`. | `transform.ts`, `scalable.ts`, `types.ts`, `ImportPage.tsx` | 5.4, 5.5 Nr. 6, 16.3 |
 | 2.4.0 | Fix (Datenänderung) | Dividenden in Fremdwährung werden in der Auszahlungswährung (EUR) gebucht statt in USD/ZAR mit `fxRate` – vorher blieben USD-/ZAR-Guthaben und ein EUR-Minus auf dem Portfolio-Konto. Negative Dividenden (Stornos) werden verrechnet bzw. übersprungen statt als positive Dividende gebucht. **Bereits importierte Fremdwährungs-Dividenden gelten nicht mehr als Duplikat** und müssen vor dem Neuimport gelöscht werden. | `transform.ts` | 5.4, 5.5 Nr. 10 |
 | 2.3.1 | Fix | Als „custom“ gemappte **Aktien** ohne Marktdaten (z. B. delistet) werden als manuell bepreist angelegt, statt von `checkImport` mit „Could not find … in market data“ abgelehnt zu werden – vorher scheiterten alle Aktivitäten einer solchen ISIN. | `ImportPage.tsx` | 6.2 |
 | 2.3.0 | Feature | TR-Kapitalmaßnahmen Stufe 2: Wertpapierwechsel (`SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION`, `REVERSE_SPLIT`) als ungepaartes `TRANSFER_OUT`/`TRANSFER_IN` mit übertragenem Einstandswert (FIFO aus der Datei), `WORTHLESS` als `SELL` zu 0. | `transform.ts` | 5.4, 5.5 Nr. 9, 16.2 |
@@ -960,7 +968,7 @@ Entscheidungen bei der Umsetzung:
   Beide verschieben die Nettoeinlage um denselben Betrag in entgegengesetzte Richtung,
   in Summe also 0. Das ursprüngliche Kaufdatum geht dabei verloren (neuer Lot am
   Tauschtag).
-- **Einstandswert aus der Datei:** `mapCorporateActions()` läuft vor der Hauptschleife
+- **Einstandswert aus der Datei:** `planSpecialRows()` (bis 2.4.0 `mapCorporateActions()`) läuft vor der Hauptschleife
   chronologisch über alle Zeilen und führt je ISIN FIFO-Lots wie Wealthfolio: `BUY` mit
   `tradeFinalCash`, `SELL` entnimmt FIFO, `FREE_RECEIPT` mit `shares × price`, ein
   Wertpapierwechsel überträgt die Kosten auf die neue ISIN. Hält die Datei weniger Stück
@@ -968,10 +976,13 @@ Entscheidungen bei der Umsetzung:
   übersprungen, statt einen erfundenen Einstandswert zu buchen.
 - An einem echten Export (7 Zeilen dieser Typen) gingen alle Einstandswerte auf.
 
-### 16.3 Stufe 3 – Kapitalmaßnahmen mit Bestand oder Verrechnung (Backlog #17)
+### 16.3 Stufe 3 – Kapitalmaßnahmen mit Bestand oder Verrechnung (umgesetzt in 2.5.0, #17)
 
-| Typ | Beispiel | Geplante Abbildung |
+| Typ | Beispiel | Abbildung |
 |---|---|---|
-| `SPLIT` | +19 Stück (nur die **zusätzlichen** Stück, ISIN bleibt) | `SPLIT` mit Verhältnis (Bestand + n) / Bestand – braucht den Bestand davor; Alternative: P `TRANSFER_IN` von n Stück zu 0 € |
-| `STOCK_DIVIDEND` | +n; später +n/−n mit Valuta des ersten Eintrags (Umbuchung) | erstes +n als `DIVIDEND`/`DIVIDEND_IN_KIND` bzw. `TRANSFER_IN` zum angegebenen Preis; das +/−-Paar verrechnen und überspringen |
-| `DIVIDEND_REINVESTMENT` | +0,73 Stück nach einer Bardividende | wie DRIP: Bardividende kommt schon über `CASH/DIVIDEND`; die Wiederanlage darf das Geld nicht doppelt zählen – an einem echten Fall prüfen |
+| `SPLIT` | +19 Stück (nur die **zusätzlichen** Stück, ISIN bleibt) | Wealthfolio-`SPLIT`, `amount` = Verhältnis (Bestand + n) ÷ Bestand (hier 1 → 20, also 20). Wealthfolio liest das Verhältnis aus `amount` (`portfolio-engine/compile.rs`). Die FIFO-Lots werden mitskaliert, damit spätere Wechsel stimmen |
+| `STOCK_DIVIDEND` | +n; später +n/−n mit Valuta des ersten Eintrags (Umbuchung) | erstes +n als `DIVIDEND`/`DIVIDEND_IN_KIND` zum angegebenen Preis – Wealthfolio zerlegt das in Ertrag + `BUY` ohne Bargeldwirkung. Das +/−-Paar wird verrechnet (das −n hebt das zeitlich nächste +n auf) |
+| `DIVIDEND_REINVESTMENT` | +0,73 Stück; dazu eine `CASH/DIVIDEND`-Zeile mit −23,20 € | Die Bardividende ist schon als Ertrag gebucht. Die Wiederanlage ist ein Kauf: C → P Umbuchung über die 23,20 € und `BUY` der Stücke (Preis = Betrag ÷ Stück). **Nicht** `DRIP`, denn das würde den Ertrag ein zweites Mal buchen |
+
+An einem echten Export stimmt danach das Cash-Konto auf den Cent mit Trade Republic
+überein, und das Portfolio-Konto hält kein Bargeld.

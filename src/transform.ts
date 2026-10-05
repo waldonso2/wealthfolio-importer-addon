@@ -1,5 +1,5 @@
 import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag, tradeFinalCash } from "./common";
-import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult, TrRow } from "./types";
+import type { ActivityImportEx, AddonSettings, SkipKind, SkippedRow, TransformResult, TrRow } from "./types";
 
 function num(s: string | undefined | null): number {
   if (!s || s.trim() === "") return 0;
@@ -33,62 +33,108 @@ const SECURITY_EXCHANGE = new Map<string, string>([
   ["REVERSE_SPLIT", "Reverse split"],
 ]);
 
-// A dividend-like row with a negative amount is a correction. A reversal
-// (same ISIN, amount and tax with opposite signs) cancels the closest-in-time
-// matching row; both are skipped. Pairing it with the closest row keeps the
-// originally booked dividend when TR reverses and immediately rebooks one, so
-// earlier imports stay duplicates. Negative rows without such a partner (e.g.
-// cash taken for a dividend reinvestment) are skipped with a reason rather than
-// booked as income.
-function dividendCorrections(rows: TrRow[]): Map<string, string> {
-  const skip = new Map<string, string>();
-  const dividends = rows.filter((r) => r.category === "CASH" && DIVIDEND_LIKE.has(r.type));
-  const cents = (s: string) => Math.round(num(s) * 100);
-  const time = (r: TrRow) => new Date(r.datetime).getTime();
-  for (const neg of dividends.filter((r) => num(r.amount) < 0)) {
-    const partner = dividends
-      .filter(
-        (r) =>
-          num(r.amount) > 0 &&
-          !skip.has(r.transaction_id) &&
-          r.symbol === neg.symbol &&
-          cents(r.amount) === -cents(neg.amount) &&
-          cents(r.tax) === -cents(neg.tax),
-      )
-      .sort((a, b) => Math.abs(time(a) - time(neg)) - Math.abs(time(b) - time(neg)))[0];
-    if (partner) {
-      const reason = `${neg.type} reversal: cancels out with the ${partner.type} of ${partner.date === neg.date ? "the same day" : partner.date}`;
-      skip.set(neg.transaction_id, reason);
-      skip.set(partner.transaction_id, `${partner.type} cancelled by the reversal of ${neg.date}`);
-    } else {
-      skip.set(neg.transaction_id, `${neg.type} with negative amount and no matching ${neg.type} to cancel (e.g. a dividend reinvestment) - not supported`);
-    }
-  }
-  return skip;
-}
-
-type CorporateResult = { activity: ActivityImportEx } | { skip: string };
+type Skip = { reason: string; kind: SkipKind; hint?: string };
+// Outcome of a row handled by planSpecialRows: the activities it becomes (may
+// be empty when another row books its effect) or why it is skipped.
+type Planned = { activities: ActivityImportEx[] } | { skip: Skip };
 
 // More decimals than fmtAmt: a per-share cost basis can be tiny (25,000 → 38 shares).
 function fmtPrice(n: number): string {
   return n.toFixed(10).replace(/\.?0+$/, "") || "0";
 }
 
-// Maps the supported CORPORATE_ACTION rows, keyed by transaction_id.
-//
-// Wealthfolio refuses a TRANSFER_OUT/TRANSFER_IN pair between two different
-// assets, so an ISIN change is booked as an unpaired TRANSFER_OUT of the old
-// ISIN and an unpaired TRANSFER_IN of the new one that carries the old
-// position's cost basis as unitPrice. The export has no cost basis, so it is
-// rebuilt FIFO (like Wealthfolio's lot relief) from the BUY/SELL/FREE_RECEIPT
-// rows of the same file; if the file doesn't hold the shares, the rows are
-// skipped instead of booking a made-up cost.
-function mapCorporateActions(rows: TrRow[], config: AddonSettings): Map<string, CorporateResult> {
-  const { portfolioAccountId } = config;
-  const cashCurrency = config.cashCurrency || "EUR";
-  const result = new Map<string, CorporateResult>();
-  const lots = new Map<string, { qty: number; cost: number }[]>();
+// Hint for an unsupported row: what it moved, so the user can add it by hand.
+function moneyHint(r: TrRow): string {
+  const cash = num(r.amount) + num(r.fee) + num(r.tax);
+  const moved = Math.round(cash * 100) ? `${cash > 0 ? "+" : "-"}${fmtAmt(cash)} ${r.currency || "EUR"}` : "";
+  return moved
+    ? `It changed your Trade Republic cash by ${moved}. Add it manually in Wealthfolio and report the type so it can be supported.`
+    : "It doesn't move cash. Report the type so it can be supported.";
+}
 
+// Booking day (the export's "date" column can be an earlier value date).
+const day = (r: TrRow) => r.datetime.slice(0, 10);
+const time = (r: TrRow) => new Date(r.datetime).getTime();
+const closest = (rows: TrRow[], to: TrRow) =>
+  [...rows].sort((a, b) => Math.abs(time(a) - time(to)) - Math.abs(time(b) - time(to)))[0];
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Rows whose meaning depends on other rows of the file, keyed by transaction_id:
+//
+// - Dividend corrections. A dividend-like row with a negative amount either
+//   reverses a dividend (same ISIN, amount and tax with opposite signs; it
+//   cancels the closest-in-time match, so a reversal followed by an immediate
+//   rebooking keeps the originally booked dividend and earlier imports stay
+//   duplicates) or pays for a dividend reinvestment (see below).
+// - Corporate actions. The export only has share counts, so a position's share
+//   count and cost basis are rebuilt FIFO (like Wealthfolio's lot relief) from
+//   the BUY/SELL/FREE_RECEIPT rows of the same file:
+//   - ISIN exchanges become an unpaired TRANSFER_OUT of the old and TRANSFER_IN
+//     of the new ISIN carrying the cost basis as unitPrice (Wealthfolio refuses
+//     a transfer pair between two different assets);
+//   - SPLIT becomes a Wealthfolio SPLIT with ratio (held + n) / held;
+//   - STOCK_DIVIDEND becomes DIVIDEND/DIVIDEND_IN_KIND (income plus shares,
+//     cash-neutral); a +n/-n rebooking pair cancels out;
+//   - DIVIDEND_REINVESTMENT becomes a BUY funded from the cash account with the
+//     negative DIVIDEND row TR books for it (the cash dividend itself was
+//     already booked as income);
+//   - WORTHLESS becomes a SELL at 0.
+//   If the file doesn't hold the shares, the rows are skipped rather than
+//   booked with a made-up cost or ratio.
+function planSpecialRows(rows: TrRow[], config: AddonSettings): Map<string, Planned> {
+  const { cashAccountId, portfolioAccountId } = config;
+  const cashCurrency = config.cashCurrency || "EUR";
+  const cashAct = makeCashAct(cashCurrency);
+  const plan = new Map<string, Planned>();
+  const skip = (r: TrRow, reason: string, kind: SkipKind, hint?: string) =>
+    plan.set(r.transaction_id, { skip: { reason, kind, hint } });
+  const book = (r: TrRow, ...activities: ActivityImportEx[]) => plan.set(r.transaction_id, { activities });
+
+  // ── Dividend reversals ────────────────────────────────────────────────────
+  const dividends = rows.filter((r) => r.category === "CASH" && DIVIDEND_LIKE.has(r.type));
+  const cents = (s: string) => Math.round(num(s) * 100);
+  const negativeDividends: TrRow[] = [];
+  for (const neg of dividends.filter((r) => num(r.amount) < 0)) {
+    const candidates = dividends.filter(
+      (r) =>
+        num(r.amount) > 0 &&
+        !plan.has(r.transaction_id) &&
+        r.symbol === neg.symbol &&
+        cents(r.amount) === -cents(neg.amount) &&
+        cents(r.tax) === -cents(neg.tax),
+    );
+    if (candidates.length === 0) {
+      negativeDividends.push(neg);
+      continue;
+    }
+    const partner = closest(candidates, neg);
+    const when = day(partner) === day(neg) ? "the same day" : day(partner);
+    skip(neg, `Reversal of the ${partner.type.toLowerCase()} of ${when}; the two rows cancel out.`, "netted");
+    skip(partner, `Cancelled by the reversal of ${day(neg)}; the two rows cancel out.`, "netted");
+  }
+
+  // ── Stock dividend rebookings (+n / -n) ───────────────────────────────────
+  const stockDividends = rows.filter((r) => r.category === "CORPORATE_ACTION" && r.type === "STOCK_DIVIDEND");
+  for (const neg of stockDividends.filter((r) => num(r.shares) < 0)) {
+    const candidates = stockDividends.filter(
+      (r) => num(r.shares) > 0 && !plan.has(r.transaction_id) && r.symbol === neg.symbol && num(r.shares) === -num(neg.shares),
+    );
+    if (candidates.length === 0) {
+      skip(
+        neg,
+        `Stock dividend reversal of ${fmtPrice(-num(neg.shares))} ${neg.name} shares without a matching stock dividend.`,
+        "missing",
+        "Check the position in Wealthfolio and remove the shares manually if Trade Republic took them back.",
+      );
+      continue;
+    }
+    const partner = closest(candidates, neg);
+    skip(neg, `Rebooking by Trade Republic: cancels out with the stock dividend booked ${day(partner) === day(neg) ? "the same day" : day(partner)}.`, "netted");
+    skip(partner, `Rebooking by Trade Republic: cancelled by the reversal booked ${day(neg) === day(partner) ? "the same day" : day(neg)}.`, "netted");
+  }
+
+  // ── Positions (FIFO) and corporate actions, in time order ─────────────────
+  const lots = new Map<string, { qty: number; cost: number }[]>();
   const held = (isin: string) => (lots.get(isin) ?? []).reduce((sum, l) => sum + l.qty, 0);
   const addLot = (isin: string, qty: number, cost: number) => {
     if (qty > 0) lots.set(isin, [...(lots.get(isin) ?? []), { qty, cost }]);
@@ -125,6 +171,8 @@ function mapCorporateActions(rows: TrRow[], config: AddonSettings): Map<string, 
       isValid: true,
       isDraft: false,
     }) as ActivityImportEx;
+  const fullHistory =
+    "Import the complete transaction history (all years) so the position is known, or add this change manually in Wealthfolio.";
 
   const sorted = [...rows].sort((a, b) => a.datetime.localeCompare(b.datetime));
   for (const r of sorted) {
@@ -143,17 +191,97 @@ function mapCorporateActions(rows: TrRow[], config: AddonSettings): Map<string, 
       addLot(r.symbol, shares, shares * num(r.price));
       continue;
     }
-    if (r.category !== "CORPORATE_ACTION" || result.has(r.transaction_id)) continue;
+    if (r.category !== "CORPORATE_ACTION" || plan.has(r.transaction_id)) continue;
 
     if (r.type === "WORTHLESS") {
       relieve(r.symbol, shares);
-      result.set(r.transaction_id, {
-        activity: {
-          ...security(r, "SELL", r.datetime, shares, "0", `${r.name} - written off as worthless${timeTag(r.datetime)}`),
-          fee: "0",
-          amount: "0",
-        },
+      book(r, {
+        ...security(r, "SELL", r.datetime, shares, "0", `${r.name} - written off as worthless${timeTag(r.datetime)}`),
+        fee: "0",
+        amount: "0",
       });
+      continue;
+    }
+
+    if (r.type === "SPLIT") {
+      const before = held(r.symbol);
+      const ratio = before > 0 ? (before + num(r.shares)) / before : 0;
+      if (ratio <= 0) {
+        skip(
+          r,
+          `Split of ${r.name} (${num(r.shares) > 0 ? "+" : ""}${fmtPrice(num(r.shares))} shares): the split ratio can't be derived because this file holds no ${r.symbol} shares before the split.`,
+          "missing",
+          fullHistory,
+        );
+        continue;
+      }
+      for (const lot of lots.get(r.symbol) ?? []) lot.qty *= ratio;
+      book(r, {
+        accountId: portfolioAccountId,
+        activityType: "SPLIT",
+        date: r.datetime,
+        symbol: r.symbol,
+        symbolName: r.name,
+        instrumentType: r.asset_class === "STOCK" ? "EQUITY" : "FUND",
+        quoteCcy: r.currency || cashCurrency,
+        amount: fmtPrice(ratio),
+        currency: r.currency || cashCurrency,
+        comment: `${r.name} - split ${fmtPrice(ratio)}:1 (${fmtPrice(before)} -> ${fmtPrice(before * ratio)} shares)${timeTag(r.datetime)}`,
+        isValid: true,
+        isDraft: false,
+      } as ActivityImportEx);
+      continue;
+    }
+
+    if (r.type === "STOCK_DIVIDEND") {
+      const price = num(r.price);
+      if (price <= 0) {
+        skip(
+          r,
+          `Stock dividend of ${fmtPrice(shares)} ${r.name} shares without a value per share in the export.`,
+          "missing",
+          "Add it manually in Wealthfolio as a dividend in kind (Dividend, subtype Dividend in kind) with the value from your Trade Republic statement.",
+        );
+        continue;
+      }
+      addLot(r.symbol, shares, shares * price);
+      book(r, {
+        ...security(r, "DIVIDEND", r.datetime, shares, fmtPrice(price), `${r.name} - stock dividend: ${fmtPrice(shares)} shares${timeTag(r.datetime)}`),
+        subtype: "DIVIDEND_IN_KIND",
+        amount: fmtAmt(shares * price),
+      });
+      continue;
+    }
+
+    if (r.type === "DIVIDEND_REINVESTMENT") {
+      const funding = negativeDividends.filter(
+        (d) => d.symbol === r.symbol && !plan.has(d.transaction_id) && Math.abs(time(d) - time(r)) <= 7 * DAY_MS,
+      );
+      if (funding.length === 0 || shares <= 0) {
+        skip(
+          r,
+          `Dividend reinvestment of ${fmtPrice(shares)} ${r.name} shares: the export has no matching cash debit, so the purchase price is unknown.`,
+          "missing",
+          "Add it manually in Wealthfolio as a BUY with the amount from your Trade Republic statement.",
+        );
+        continue;
+      }
+      const cash = closest(funding, r);
+      const total = Math.abs(num(cash.amount)) + Math.abs(num(cash.fee));
+      const unitPrice = fmtPrice(total / shares);
+      const groupId = `buy-${r.transaction_id}`;
+      addLot(r.symbol, shares, total);
+      book(
+        r,
+        cashAct(cashAccountId, "TRANSFER_OUT", addSec(r.datetime, -2), total, `Funds for ${r.symbol} (${r.name}) dividend reinvestment -> Portfolio${timeTag(r.datetime)}`, undefined, groupId),
+        cashAct(portfolioAccountId, "TRANSFER_IN", addSec(r.datetime, -1), total, `Funds from Cash for ${r.symbol} dividend reinvestment${timeTag(r.datetime)}`, undefined, groupId),
+        {
+          ...security(r, "BUY", r.datetime, shares, unitPrice, `${r.name} - dividend reinvestment${timeTag(r.datetime)}`),
+          fee: "0",
+          amount: tradeFinalCash("BUY", fmtPrice(shares), unitPrice, "0"),
+        },
+      );
+      book(cash); // its cash is the funding above
       continue;
     }
 
@@ -164,9 +292,12 @@ function mapCorporateActions(rows: TrRow[], config: AddonSettings): Map<string, 
     );
     const out = legs.filter((x) => num(x.shares) < 0);
     const inn = legs.filter((x) => num(x.shares) > 0);
-    const skipAll = (reason: string) => legs.forEach((x) => result.set(x.transaction_id, { skip: reason }));
+    const skipAll = (reason: string, hint: string) => legs.forEach((x) => skip(x, reason, "missing", hint));
     if (out.length !== 1 || inn.length !== 1 || out[0].symbol === inn[0].symbol) {
-      skipAll(`${r.type}: expected one outgoing and one incoming ISIN at the same time`);
+      skipAll(
+        `${label}: expected one outgoing and one incoming ISIN at the same time, found ${out.length} outgoing and ${inn.length} incoming.`,
+        "Add the exchange manually in Wealthfolio: TRANSFER_OUT of the old and TRANSFER_IN of the new security.",
+      );
       continue;
     }
     const [o, i] = [out[0], inn[0]];
@@ -174,21 +305,28 @@ function mapCorporateActions(rows: TrRow[], config: AddonSettings): Map<string, 
     const inQty = num(i.shares);
     if (held(o.symbol) + 1e-9 < outQty) {
       skipAll(
-        `${r.type}: cost basis of ${o.symbol} unknown - this file holds ${fmtPrice(held(o.symbol))} of ${fmtPrice(outQty)} shares (import the full history)`,
+        `${label} ${o.symbol} -> ${i.symbol}: the cost basis is unknown because this file holds only ${fmtPrice(held(o.symbol))} of the ${fmtPrice(outQty)} exchanged shares.`,
+        fullHistory,
       );
       continue;
     }
     const cost = relieve(o.symbol, outQty);
     addLot(i.symbol, inQty, cost);
     const note = `${label}: ${o.symbol} -> ${i.symbol}`;
-    result.set(o.transaction_id, {
-      activity: security(o, "TRANSFER_OUT", o.datetime, outQty, fmtPrice(cost / outQty), `${o.name} - ${note}${timeTag(o.datetime)}`),
-    });
-    result.set(i.transaction_id, {
-      activity: security(i, "TRANSFER_IN", addSec(i.datetime, 1), inQty, fmtPrice(cost / inQty), `${i.name} - ${note}${timeTag(i.datetime)}`),
-    });
+    book(o, security(o, "TRANSFER_OUT", o.datetime, outQty, fmtPrice(cost / outQty), `${o.name} - ${note}${timeTag(o.datetime)}`));
+    book(i, security(i, "TRANSFER_IN", addSec(i.datetime, 1), inQty, fmtPrice(cost / inQty), `${i.name} - ${note}${timeTag(i.datetime)}`));
   }
-  return result;
+
+  for (const neg of negativeDividends) {
+    if (plan.has(neg.transaction_id)) continue;
+    skip(
+      neg,
+      `Negative ${neg.type.toLowerCase()} of ${fmtAmt(Math.abs(num(neg.amount)))} ${neg.currency || cashCurrency} for ${neg.name}: neither a reversal of a matching dividend nor the payment for a dividend reinvestment.`,
+      "missing",
+      "Trade Republic debited this amount. Check your statement and add it manually in Wealthfolio (e.g. as a withdrawal or tax) if it is missing.",
+    );
+  }
+  return plan;
 }
 
 export function transform(rows: TrRow[], config: AddonSettings): TransformResult {
@@ -198,8 +336,9 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
 
   const activities: ActivityImportEx[] = [];
   const skipped: SkippedRow[] = [];
-  const corporate = mapCorporateActions(rows, config);
-  const dividendSkips = dividendCorrections(rows);
+  const special = planSpecialRows(rows, config);
+  const skip = (r: TrRow, reason: string, kind: SkipKind, hint?: string) =>
+    skipped.push({ datetime: r.datetime, type: r.type, category: r.category, description: r.description, reason, kind, hint });
 
   // Pre-build set of BUY transaction_ids funded by a STOCKPERK gift
   const stockperkFundedBuyIds = new Set<string>();
@@ -222,6 +361,17 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
     const { category, type: typ, datetime: dt, amount, fee, tax, description: desc } = r;
     const cpiban = r.counterparty_iban ?? "";
     const cpname = r.counterparty_name ?? "";
+
+    // Rows that depend on other rows (corrections, corporate actions)
+    const planned = r.transaction_id ? special.get(r.transaction_id) : undefined;
+    if (planned && "skip" in planned) {
+      skip(r, planned.skip.reason, planned.skip.kind, planned.skip.hint);
+      continue;
+    }
+    if (planned) {
+      activities.push(...planned.activities);
+      continue;
+    }
 
     // ── TRADING / BUY ───────────────────────────────────────────────────────
     if (category === "TRADING" && typ === "BUY") {
@@ -361,13 +511,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
 
     // ── DELIVERY / MIGRATION ────────────────────────────────────────────────
     if (category === "DELIVERY" && typ === "MIGRATION") {
-      skipped.push({
-        datetime: dt,
-        type: typ,
-        category,
-        description: desc,
-        reason: "MIGRATION: technical ISIN change, no net portfolio effect",
-      });
+      skip(r, "Technical ISIN change by Trade Republic; the holding itself doesn't change.", "netted");
       continue;
     }
 
@@ -490,11 +634,6 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
       }
 
       const label = DIVIDEND_LIKE.get(typ);
-      const dividendSkip = label ? dividendSkips.get(r.transaction_id) : undefined;
-      if (dividendSkip) {
-        skipped.push({ datetime: dt, type: typ, category, description: desc, reason: dividendSkip });
-        continue;
-      }
       if (label) {
         const lower = label.toLowerCase();
         const taxAmt = num(tax);
@@ -559,7 +698,7 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         const net = amt + num(tax);
         const what = `${taxLabel}${r.name ? ` - ${r.name}` : ""}${r.symbol ? ` (${r.symbol})` : ""}`;
         if (Math.round(net * 100) === 0) {
-          skipped.push({ datetime: dt, type: typ, category, description: desc, reason: `${typ}: no cash effect` });
+          skip(r, "Tax booking with no cash effect (amount and tax add up to 0).", "netted");
         } else if (net < 0) {
           activities.push(cashAct(cashAccountId, "TAX", dt, Math.abs(net), what + timeTag(dt)));
         } else {
@@ -676,34 +815,20 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         continue;
       }
 
-      skipped.push({
-        datetime: dt,
-        type: typ,
-        category,
-        description: desc,
-        reason: `Unknown CASH type: ${typ}`,
-      });
+      skip(r, `Trade Republic transaction type CASH/${typ} isn't supported yet, so no activity was created.`, "missing", moneyHint(r));
       continue;
     }
 
-    // ── CORPORATE_ACTION (mapped up front, see mapCorporateActions) ───────────
-    const mapped = category === "CORPORATE_ACTION" ? corporate.get(r.transaction_id) : undefined;
-    if (mapped && "activity" in mapped) {
-      activities.push(mapped.activity);
+    if (category === "CORPORATE_ACTION") {
+      skip(
+        r,
+        `Corporate action ${typ} isn't supported yet, so ${r.name || r.symbol} wasn't changed${r.shares ? ` (${num(r.shares) > 0 ? "+" : ""}${r.shares.replace(/\.?0+$/, "")} shares)` : ""}.`,
+        "missing",
+        "Add the change manually in Wealthfolio so the share count matches Trade Republic, and report the type so it can be supported.",
+      );
       continue;
     }
-    if (mapped) {
-      skipped.push({ datetime: dt, type: typ, category, description: desc, reason: mapped.skip });
-      continue;
-    }
-
-    skipped.push({
-      datetime: dt,
-      type: typ,
-      category,
-      description: desc,
-      reason: category === "CORPORATE_ACTION" ? `Unsupported corporate action: ${typ}` : `Unknown category: ${category}`,
-    });
+    skip(r, `Trade Republic category ${category}/${typ} isn't supported yet, so no activity was created.`, "missing", moneyHint(r));
   }
 
   sortAndNumber(activities);
