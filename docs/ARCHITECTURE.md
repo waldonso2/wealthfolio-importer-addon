@@ -697,7 +697,7 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
     Versionen nur anzeigen (4.2); Download und „Install from File" bleiben manuell.
     `UpdateBanner` ist nur im echten Addon prüfbar (Netzwerkfreigabe, Sandbox).
 12. **TR-Kapitalmaßnahmen (`CORPORATE_ACTION`) werden noch übersprungen** – siehe
-    Abschnitt 16 (Stufen 2 und 3 im Backlog).
+    Abschnitt 16 (Stufen 2 und 3 im Backlog: #16, #17).
 
 ---
 
@@ -918,7 +918,7 @@ gut 900 €. Umsetzung in drei Stufen:
 Steuer-Stornos (`SEC_ACCOUNT` −x / +x) werden **nicht** verrechnet, sondern als `TAX` und
 `CREDIT`/`TAX_REFUND` gebucht – der Saldo stimmt, und die Buchungen entsprechen dem Export.
 
-### 16.2 Stufe 2 – einfache Kapitalmaßnahmen (Backlog)
+### 16.2 Stufe 2 – einfache Kapitalmaßnahmen (Backlog #16)
 
 `CORPORATE_ACTION` liefert nur Stückzahlen (`shares`), keine Beträge und keinen Einstandswert.
 
@@ -932,7 +932,7 @@ Offene Frage: Herkunft des Einstandswerts – aus BUY/SELL derselben Datei berec
 (genau, solange die Datei vollständig ist) oder vor dem Import aus Wealthfolio lesen
 (`activities.getAll`).
 
-### 16.3 Stufe 3 – Kapitalmaßnahmen mit Bestand oder Verrechnung (Backlog)
+### 16.3 Stufe 3 – Kapitalmaßnahmen mit Bestand oder Verrechnung (Backlog #17)
 
 | Typ | Beispiel | Geplante Abbildung |
 |---|---|---|
