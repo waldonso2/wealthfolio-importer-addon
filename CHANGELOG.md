@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.3.1] - 2026-10-05
+
+### Fixed
+
+- Stocks mapped as "custom" (kept as ISIN because the ticker search can't find them, e.g. delisted shares) were rejected by Wealthfolio with "Could not find '…' in market data", so every activity of that stock failed. They are now created as manually quoted assets. Funds mapped as "custom" are unchanged.
+
 ## [2.3.0] - 2026-10-05
 
 ### Added
