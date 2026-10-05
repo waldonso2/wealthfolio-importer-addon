@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.4.0] - 2026-10-05
+
+### Fixed
+
+- Trade Republic dividends paid on foreign securities (USD, ZAR, …) are now booked in the currency Trade Republic actually paid out (EUR); the original amount is kept in the comment. Before, the dividend was booked in the foreign currency while the withholding tax and the transfer to the cash account were in EUR, which left foreign-currency cash and a negative EUR balance on the securities account.
+- Dividend reversals (negative amounts) were booked as additional dividends. A reversal now cancels out the matching dividend; a negative row without a match is listed as skipped.
+
+### Upgrade note
+
+- Foreign-currency dividends imported with an earlier version are no longer recognised as duplicates, because amount and currency changed. Delete them in Wealthfolio (securities account, type Dividend, currency other than EUR) before re-importing, or they will be counted twice.
+
 ## [2.3.1] - 2026-10-05
 
 ### Fixed

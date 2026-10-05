@@ -41,7 +41,7 @@ broker you use. Optionally add **transfer patterns** (see below).
 | Type | Wealthfolio |
 | --- | --- |
 | Buy / Sell | BUY / SELL (fees and taxes as fee) + internal cash transfer |
-| Dividend, fund distribution, share-exchange cash | DIVIDEND (+ TAX for withholding, FX handled) + transfer to cash |
+| Dividend, fund distribution, share-exchange cash | DIVIDEND in the payout currency (original foreign amount in the comment) + TAX for withholding + transfer to cash; reversals are netted out |
 | Vorabpauschale, tax adjustments / optimisation | TAX, or CREDIT (tax refund) when positive |
 | Deposits (`CUSTOMER_INBOUND`, `TRANSFER_INBOUND`, …) | DEPOSIT |
 | Outgoing transfers (`TRANSFER_OUTBOUND`, `CUSTOMER_OUTBOUND_REQUEST`, direct debits) | WITHDRAWAL, or TRANSFER via transfer pattern |
