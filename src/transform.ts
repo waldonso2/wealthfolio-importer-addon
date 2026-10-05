@@ -375,10 +375,13 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
 
     // ── TRADING / BUY ───────────────────────────────────────────────────────
     if (category === "TRADING" && typ === "BUY") {
+      // Fee and tax go into their own fields (Wealthfolio reports them separately);
+      // amount stays the final cash, gross + fee + tax.
       const buyFee = Math.abs(num(fee));
       const buyTax = Math.abs(num(tax));
-      const buyFeeTotal = buyFee + buyTax;
-      const totalCash = Math.abs(num(amount)) + buyFeeTotal;
+      const buyFeeStr = buyFee ? fmtAmt(buyFee) : "0";
+      const buyTaxStr = buyTax ? fmtAmt(buyTax) : undefined;
+      const totalCash = Math.abs(num(amount)) + buyFee + buyTax;
       const instrType = r.asset_class === "STOCK" ? "EQUITY" : "FUND";
       const quoteCcy = r.currency || "EUR";
 
@@ -403,8 +406,9 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
           quoteCcy,
           quantity: r.shares,
           unitPrice: r.price,
-          fee: buyFeeTotal ? fmtAmt(buyFeeTotal) : "0",
-          amount: tradeFinalCash("BUY", r.shares, r.price, buyFeeTotal ? fmtAmt(buyFeeTotal) : "0"),
+          fee: buyFeeStr,
+          tax: buyTaxStr,
+          amount: tradeFinalCash("BUY", r.shares, r.price, buyFeeStr, buyTaxStr),
           currency: quoteCcy,
           comment: `${r.name} - Stockperk gift buy (funded by TR, not own funds)${timeTag(dt)}`,
           isValid: true,
@@ -447,8 +451,9 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         quoteCcy,
         quantity: r.shares,
         unitPrice: r.price,
-        fee: buyFeeTotal ? fmtAmt(buyFeeTotal) : "0",
-        amount: tradeFinalCash("BUY", r.shares, r.price, buyFeeTotal ? fmtAmt(buyFeeTotal) : "0"),
+        fee: buyFeeStr,
+        tax: buyTaxStr,
+        amount: tradeFinalCash("BUY", r.shares, r.price, buyFeeStr, buyTaxStr),
         currency: quoteCcy,
         comment: (desc ? `${r.name} - ${desc}` : r.name) + timeTag(dt),
         isValid: true,
@@ -459,10 +464,15 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
 
     // ── TRADING / SELL ──────────────────────────────────────────────────────
     if (category === "TRADING" && typ === "SELL") {
+      // Withheld tax goes into the tax field. Wealthfolio's tax field only holds
+      // charges, so a tax refund (positive tax) becomes its own CREDIT/TAX_REFUND.
       const sellFee = Math.abs(num(fee));
-      const sellTax = Math.abs(num(tax));
-      const sellFeeTotal = sellFee + sellTax;
-      const proceeds = Math.abs(num(amount)) - sellFeeTotal;
+      const sellTaxSigned = num(tax);
+      const sellTax = sellTaxSigned < 0 ? -sellTaxSigned : 0;
+      const sellTaxRefund = sellTaxSigned > 0 ? sellTaxSigned : 0;
+      const sellFeeStr = sellFee ? fmtAmt(sellFee) : "0";
+      const sellTaxStr = sellTax ? fmtAmt(sellTax) : undefined;
+      const proceeds = Math.abs(num(amount)) - sellFee - sellTax + sellTaxRefund;
       const instrType = r.asset_class === "STOCK" ? "EQUITY" : "FUND";
       const quoteCcy = r.currency || "EUR";
 
@@ -476,13 +486,19 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
         quoteCcy,
         quantity: r.shares,
         unitPrice: r.price,
-        fee: sellFeeTotal ? fmtAmt(sellFeeTotal) : "0",
-        amount: tradeFinalCash("SELL", r.shares, r.price, sellFeeTotal ? fmtAmt(sellFeeTotal) : "0"),
+        fee: sellFeeStr,
+        tax: sellTaxStr,
+        amount: tradeFinalCash("SELL", r.shares, r.price, sellFeeStr, sellTaxStr),
         currency: quoteCcy,
         comment: (desc ? `${r.name} - ${desc}` : r.name) + timeTag(dt),
         isValid: true,
         isDraft: false,
       });
+      if (sellTaxRefund) {
+        activities.push(
+          cashAct(portfolioAccountId, "CREDIT", dt, sellTaxRefund, `Tax refund on sale of ${r.name}${timeTag(dt)}`, "TAX_REFUND"),
+        );
+      }
       const sellGroupId = `sell-${r.transaction_id}`;
       activities.push(
         cashAct(
@@ -635,7 +651,6 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
 
       const label = DIVIDEND_LIKE.get(typ);
       if (label) {
-        const lower = label.toLowerCase();
         const taxAmt = num(tax);
         const netCash = absAmt + taxAmt;
         const sharesVal = r.shares || "1";
@@ -658,14 +673,14 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
           quoteCcy,
           quantity: sharesVal,
           currency: r.currency || cashCurrency,
-          amount: fmtAmt(absAmt),
+          // amount is the cash received (net); withholding tax goes into the tax
+          // field, so Wealthfolio reports gross income and tax on one activity.
+          amount: fmtAmt(netCash),
+          tax: taxAmt < 0 ? fmtAmt(-taxAmt) : undefined,
           comment: `${label} ${r.name}${original}${timeTag(dt)}`,
           isValid: true,
           isDraft: false,
         });
-        if (taxAmt) {
-          activities.push(cashAct(portfolioAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on ${lower} ${r.name}${timeTag(dt)}`));
-        }
 
         const dividendGroupId = `div-${r.transaction_id}`;
         activities.push(
@@ -723,11 +738,12 @@ export function transform(rows: TrRow[], config: AddonSettings): TransformResult
       }
 
       if (typ === "INTEREST_PAYMENT" || typ === "MANUAL_CASH_TRANSFER") {
+        // Net interest as amount, withholding tax in the tax field (one activity).
         const taxAmt = num(tax);
-        activities.push(cashAct(cashAccountId, "INTEREST", dt, absAmt, desc + timeTag(dt)));
-        if (taxAmt) {
-          activities.push(cashAct(cashAccountId, "TAX", dt, Math.abs(taxAmt), `Withholding tax on interest${timeTag(dt)}`));
-        }
+        activities.push({
+          ...cashAct(cashAccountId, "INTEREST", dt, absAmt + taxAmt, desc + timeTag(dt)),
+          tax: taxAmt < 0 ? fmtAmt(-taxAmt) : undefined,
+        });
         continue;
       }
 
