@@ -165,6 +165,51 @@ describe("SELL", () => {
   });
 });
 
+describe("Fee and tax on trades", () => {
+  it("SELL keeps fee and tax apart; amount is gross − fee − tax", () => {
+    const { activities } = transform(
+      [row({ category: "TRADING", type: "SELL", symbol: "AAPL", name: "Apple", shares: "-2", price: "160", amount: "320", fee: "-1", tax: "-25.5", transaction_id: "s1" })],
+      CONFIG,
+    );
+    const sell = activities.find((a) => a.activityType === "SELL")!;
+    expect(sell).toMatchObject({ fee: "1", tax: "25.5", amount: "293.5" });
+    const out = activities.find((a) => a.activityType === "TRANSFER_OUT")!;
+    expect(out.amount).toBe("293.5");
+  });
+
+  it("a SELL with a tax refund books a CREDIT/TAX_REFUND and sweeps it to cash", () => {
+    const { activities } = transform(
+      [row({ category: "TRADING", type: "SELL", symbol: "AAPL", name: "Apple", shares: "-2", price: "160", amount: "320", fee: "-1", tax: "12", transaction_id: "s2" })],
+      CONFIG,
+    );
+    const sell = activities.find((a) => a.activityType === "SELL")!;
+    expect(sell).toMatchObject({ fee: "1", amount: "319" });
+    expect(sell.tax).toBeUndefined();
+    expect(activities.find((a) => a.activityType === "CREDIT")).toMatchObject({ accountId: "portfolio", subtype: "TAX_REFUND", amount: "12" });
+    expect(activities.find((a) => a.activityType === "TRANSFER_OUT")!.amount).toBe("331");
+  });
+
+  it("BUY keeps fee and tax apart; amount is gross + fee + tax", () => {
+    const { activities } = transform(
+      [row({ category: "TRADING", type: "BUY", symbol: "AAPL", name: "Apple", shares: "2", price: "100", amount: "-200", fee: "-1", tax: "-0.5", transaction_id: "b9" })],
+      CONFIG,
+    );
+    const buy = activities.find((a) => a.activityType === "BUY")!;
+    expect(buy).toMatchObject({ fee: "1", tax: "0.5", amount: "201.5" });
+    expect(activities.find((a) => a.activityType === "TRANSFER_OUT")!.amount).toBe("201.5");
+  });
+
+  it("trades without tax are unchanged (fee and amount as before, no tax field)", () => {
+    const { activities } = transform(
+      [row({ category: "TRADING", type: "BUY", symbol: "AAPL", name: "Apple", shares: "2", price: "100", amount: "-200", fee: "-1", transaction_id: "b10" })],
+      CONFIG,
+    );
+    const buy = activities.find((a) => a.activityType === "BUY")!;
+    expect(buy).toMatchObject({ fee: "1", amount: "201" });
+    expect(buy.tax).toBeUndefined();
+  });
+});
+
 describe("DELIVERY", () => {
   it("FREE_RECEIPT produces a TRANSFER_IN to portfolio", () => {
     const { activities, skipped } = transform(
@@ -249,7 +294,7 @@ describe("CASH deposits and withdrawals", () => {
 });
 
 describe("DIVIDEND", () => {
-  it("EUR dividend produces DIVIDEND + TRANSFER_OUT portfolio + TRANSFER_IN cash", () => {
+  it("EUR dividend produces one DIVIDEND (net amount, tax field) + TRANSFER_OUT portfolio + TRANSFER_IN cash", () => {
     const { activities } = transform(
       [
         row({
@@ -266,15 +311,15 @@ describe("DIVIDEND", () => {
       CONFIG,
     );
 
-    expect(activities).toHaveLength(4);
+    expect(activities).toHaveLength(3);
 
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
     expect(div.accountId).toBe("portfolio");
     expect(div.comment).toContain("Dividend Apple");
-
-    const taxAct = activities.find((a) => a.activityType === "TAX")!;
-    expect(taxAct.accountId).toBe("portfolio");
-    expect(taxAct.amount).toBe("1");
+    // Wealthfolio: amount = cash received, income = amount + tax
+    expect(div.amount).toBe("8");
+    expect(div.tax).toBe("1");
+    expect(activities.find((a) => a.activityType === "TAX")).toBeUndefined();
 
     const out = activities.find((a) => a.activityType === "TRANSFER_OUT")!;
     expect(out.accountId).toBe("portfolio");
@@ -309,7 +354,8 @@ describe("DIVIDEND", () => {
 
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
     expect(div.currency).toBe("EUR");
-    expect(div.amount).toBe("9");
+    expect(div.amount).toBe("8");
+    expect(div.tax).toBe("1");
     expect(div.fxRate).toBeUndefined();
     expect(div.comment).toContain("Dividend Apple (10 USD)");
   });
@@ -363,9 +409,10 @@ describe("Dividend-like CASH types", () => {
       CONFIG,
     );
     expect(skipped).toHaveLength(0);
-    expect(activities.map((a) => a.activityType).sort()).toEqual(["DIVIDEND", "TAX", "TRANSFER_IN", "TRANSFER_OUT"]);
+    expect(activities.map((a) => a.activityType).sort()).toEqual(["DIVIDEND", "TRANSFER_IN", "TRANSFER_OUT"]);
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
-    expect(div.amount).toBe("2");
+    expect(div.amount).toBe("1.5");
+    expect(div.tax).toBe("0.5");
     expect(div.currency).toBe("EUR");
     expect(div.comment).toContain("Distribution Example Bond (Dist) (2.20 USD)");
     const out = activities.find((a) => a.activityType === "TRANSFER_OUT")!;
@@ -382,7 +429,8 @@ describe("Dividend-like CASH types", () => {
       CONFIG,
     );
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
-    expect(div.amount).toBe("7");
+    expect(div.amount).toBe("5.16");
+    expect(div.tax).toBe("1.84");
     expect(div.comment).toContain("Exchange distribution Example NV");
     expect(activities.find((a) => a.activityType === "TRANSFER_IN")!.amount).toBe("5.16");
   });
@@ -396,7 +444,6 @@ describe("Dividend-like CASH types", () => {
       "Dividend Apple",
       "Dividend Apple -> Cash",
       "Dividend Apple from Portfolio",
-      "Withholding tax on dividend Apple",
     ]);
   });
 });
@@ -664,15 +711,19 @@ describe("Corporate actions", () => {
 });
 
 describe("INTEREST", () => {
-  it("INTEREST_PAYMENT → INTEREST with optional tax", () => {
+  it("INTEREST_PAYMENT → one INTEREST with net amount and the withholding tax in the tax field", () => {
     const { activities } = transform(
       [row({ category: "CASH", type: "INTEREST_PAYMENT", amount: "5", tax: "-0.5" })],
       CONFIG,
     );
-    expect(activities).toHaveLength(2);
-    expect(activities[0].activityType).toBe("INTEREST");
-    const taxAct = activities.find((a) => a.activityType === "TAX")!;
-    expect(taxAct.amount).toBe("0.5");
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({ accountId: "cash", activityType: "INTEREST", amount: "4.5", tax: "0.5" });
+  });
+
+  it("INTEREST_PAYMENT without tax has no tax field", () => {
+    const { activities } = transform([row({ category: "CASH", type: "INTEREST_PAYMENT", amount: "5", tax: "0.00" })], CONFIG);
+    expect(activities[0]).toMatchObject({ amount: "5" });
+    expect(activities[0].tax).toBeUndefined();
   });
 });
 
@@ -879,8 +930,8 @@ describe("CSV fixture integration", () => {
     expect(rows).toHaveLength(26);
   });
 
-  it("produces 36 activities and 1 skipped (MIGRATION)", () => {
-    expect(activities).toHaveLength(36);
+  it("produces 34 activities and 1 skipped (MIGRATION)", () => {
+    expect(activities).toHaveLength(34);
     expect(skipped).toHaveLength(1);
     expect(skipped[0].type).toBe("MIGRATION");
   });
@@ -931,7 +982,8 @@ describe("CSV fixture integration", () => {
   it("DIVIDEND (USD) → DIVIDEND in EUR + TRANSFER_OUT portfolio + TRANSFER_IN cash", () => {
     const div = activities.find((a) => a.activityType === "DIVIDEND")!;
     expect(div.currency).toBe("EUR");
-    expect(div.amount).toBe("0.05");
+    expect(div.amount).toBe("0.04");
+    expect(div.tax).toBe("0.01");
     expect(div.comment).toContain("Apple (0.05 USD)");
 
     const divOut = activities.find(
@@ -1020,7 +1072,7 @@ describe("CSV fixture integration", () => {
 
   it("DISTRIBUTION, REFERRAL, EARNINGS and TAX_OPTIMIZATION are mapped, not skipped", () => {
     const by = (c: string) => activities.filter((a) => a.comment?.startsWith(c));
-    expect(by("Distribution Example Bond").find((a) => a.activityType === "DIVIDEND")!.amount).toBe("2");
+    expect(by("Distribution Example Bond").find((a) => a.activityType === "DIVIDEND")!.amount).toBe("1.5");
     expect(by("Referral bonus")[0]).toMatchObject({ activityType: "CREDIT", subtype: "BONUS", amount: "50" });
     expect(by("Advance lump-sum tax")[0]).toMatchObject({ activityType: "TAX", amount: "0.33" });
     expect(by("Tax optimisation")[0]).toMatchObject({ activityType: "CREDIT", subtype: "TAX_REFUND", amount: "1.25" });

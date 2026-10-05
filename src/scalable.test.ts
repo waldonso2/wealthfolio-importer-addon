@@ -336,6 +336,9 @@ describe("trade amount (idempotency)", () => {
     expect(tradeFinalCash("SELL", "117", "51.82", "266.2")).toBe("5796.74");
     expect(tradeFinalCash("BUY", "0.1", "0.2", "0")).toBe("0.02");
     expect(tradeFinalCash("SELL", "-5", "-10", "-1")).toBe("49");
+    // tax is a charge like the fee
+    expect(tradeFinalCash("SELL", "2", "160", "1", "25.5")).toBe("293.5");
+    expect(tradeFinalCash("BUY", "2", "100", "1", "-0.5")).toBe("201.5");
   });
 
   it("Scalable Kauf/Verkauf carry the derived amount", () => {

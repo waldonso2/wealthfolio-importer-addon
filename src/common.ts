@@ -113,16 +113,24 @@ function align(a: { n: bigint; scale: number }, scale: number): bigint {
   return a.n * 10n ** BigInt(scale - a.scale);
 }
 
-// Final cash Wealthfolio derives for a trade: BUY = gross + fee, SELL = gross − fee,
-// with gross = |quantity| × |unitPrice|. Inputs and output are decimal strings.
-export function tradeFinalCash(activityType: "BUY" | "SELL", quantity: string, unitPrice: string, fee: string): string {
+// Final cash Wealthfolio derives for a trade: BUY = gross + fee + tax, SELL =
+// gross − fee − tax, with gross = |quantity| × |unitPrice|. Inputs and output are
+// decimal strings; fee and tax count as charges whatever their sign.
+export function tradeFinalCash(
+  activityType: "BUY" | "SELL",
+  quantity: string,
+  unitPrice: string,
+  fee: string,
+  tax = "0",
+): string {
   const q = toScaled(quantity);
   const p = toScaled(unitPrice);
   const f = toScaled(fee || "0");
+  const t = toScaled(tax || "0");
   const abs = (x: bigint) => (x < 0n ? -x : x);
   const gross = { n: abs(q.n) * abs(p.n), scale: q.scale + p.scale };
-  const scale = Math.max(gross.scale, f.scale);
+  const scale = Math.max(gross.scale, f.scale, t.scale);
   const g = align(gross, scale);
-  const fe = abs(align(f, scale));
-  return fromScaled(activityType === "BUY" ? g + fe : g - fe, scale);
+  const charges = abs(align(f, scale)) + abs(align(t, scale));
+  return fromScaled(activityType === "BUY" ? g + charges : g - charges, scale);
 }

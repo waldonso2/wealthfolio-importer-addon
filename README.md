@@ -40,13 +40,13 @@ broker you use. Optionally add **transfer patterns** (see below).
 
 | Type | Wealthfolio |
 | --- | --- |
-| Buy / Sell | BUY / SELL (fees and taxes as fee) + internal cash transfer |
-| Dividend, fund distribution, share-exchange cash | DIVIDEND in the payout currency (original foreign amount in the comment) + TAX for withholding + transfer to cash; reversals are netted out |
+| Buy / Sell | BUY / SELL with fee and tax in their own fields + internal cash transfer |
+| Dividend, fund distribution, share-exchange cash | one DIVIDEND in the payout currency with the withholding tax in its tax field (original foreign amount in the comment) + transfer to cash; reversals are netted out |
 | Vorabpauschale, tax adjustments / optimisation | TAX, or CREDIT (tax refund) when positive |
 | Deposits (`CUSTOMER_INBOUND`, `TRANSFER_INBOUND`, …) | DEPOSIT |
 | Outgoing transfers (`TRANSFER_OUTBOUND`, `CUSTOMER_OUTBOUND_REQUEST`, direct debits) | WITHDRAWAL, or TRANSFER via transfer pattern |
 | Card payments / refunds | WITHDRAWAL / DEPOSIT |
-| Interest, card fee, Saveback, referral bonus | INTEREST, FEE, CREDIT (bonus) |
+| Interest, card fee, Saveback, referral bonus | INTEREST (withholding tax in its tax field), FEE, CREDIT (bonus) |
 | Gifted shares (Stockperk), share delivery | BUY funded by a bonus credit, TRANSFER_IN |
 | ISIN migration | skipped |
 | Share exchange, ADR discontinuation, reorganisation, reverse split into a new ISIN | TRANSFER_OUT of the old and TRANSFER_IN of the new ISIN, carrying the cost basis (computed from the file) |
