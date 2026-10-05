@@ -52,6 +52,8 @@ function moneyHint(r: TrRow): string {
     : "It doesn't move cash. Report the type so it can be supported.";
 }
 
+// Booking day (the export's "date" column can be an earlier value date).
+const day = (r: TrRow) => r.datetime.slice(0, 10);
 const time = (r: TrRow) => new Date(r.datetime).getTime();
 const closest = (rows: TrRow[], to: TrRow) =>
   [...rows].sort((a, b) => Math.abs(time(a) - time(to)) - Math.abs(time(b) - time(to)))[0];
@@ -106,9 +108,9 @@ function planSpecialRows(rows: TrRow[], config: AddonSettings): Map<string, Plan
       continue;
     }
     const partner = closest(candidates, neg);
-    const when = partner.date === neg.date ? "the same day" : partner.date;
+    const when = day(partner) === day(neg) ? "the same day" : day(partner);
     skip(neg, `Reversal of the ${partner.type.toLowerCase()} of ${when}; the two rows cancel out.`, "netted");
-    skip(partner, `Cancelled by the reversal of ${neg.date}; the two rows cancel out.`, "netted");
+    skip(partner, `Cancelled by the reversal of ${day(neg)}; the two rows cancel out.`, "netted");
   }
 
   // ── Stock dividend rebookings (+n / -n) ───────────────────────────────────
@@ -127,8 +129,8 @@ function planSpecialRows(rows: TrRow[], config: AddonSettings): Map<string, Plan
       continue;
     }
     const partner = closest(candidates, neg);
-    skip(neg, `Rebooking by Trade Republic: cancels out with the stock dividend booked ${partner.date === neg.date ? "the same day" : partner.date}.`, "netted");
-    skip(partner, `Rebooking by Trade Republic: cancelled by the reversal of ${neg.date}.`, "netted");
+    skip(neg, `Rebooking by Trade Republic: cancels out with the stock dividend booked ${day(partner) === day(neg) ? "the same day" : day(partner)}.`, "netted");
+    skip(partner, `Rebooking by Trade Republic: cancelled by the reversal booked ${day(neg) === day(partner) ? "the same day" : day(neg)}.`, "netted");
   }
 
   // ── Positions (FIFO) and corporate actions, in time order ─────────────────
