@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.1.1 (`manifest.json` / `package.json`).
+> Stand: Version 2.2.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3.
@@ -109,7 +109,7 @@ src/
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 └── __fixtures__/
-    ├── tr-sample.csv       14 Zeilen, deckt alle unterstützten TR-Typen ab
+    ├── tr-sample.csv       18 Zeilen, deckt alle unterstützten TR-Typen ab
     └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
 ```
 
@@ -305,7 +305,9 @@ Seit 1.4.0 liegen diese Helfer in `src/common.ts` und werden von `transform.ts` 
 | `CASH/CARD_TRANSACTION`, `CARD_TRANSACTION_INTERNATIONAL` | C `WITHDRAWAL` (Betrag inkl. Gebühr) bzw. `DEPOSIT` bei Erstattung | – |
 | `CASH/CARD_ORDERING_FEE` | C `FEE` | – |
 | `CASH/BENEFITS_SAVEBACK` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
-| `CASH/DIVIDEND` | P `DIVIDEND` (bei Fremdwährung mit `fxRate = 1/fx_rate` und Originalbetrag) + optional P `TAX` → P `TRANSFER_OUT` (t+1s, netto) → C `TRANSFER_IN` (t+2s) | `div-<txid>` |
+| `CASH/DIVIDEND`, `DISTRIBUTION`, `EXCHANGE` | P `DIVIDEND` (bei Fremdwährung mit `fxRate = 1/fx_rate` und Originalbetrag) + optional P `TAX` → P `TRANSFER_OUT` (t+1s, netto) → C `TRANSFER_IN` (t+2s). Kommentar-Präfix je Typ: „Dividend" / „Distribution" / „Exchange distribution" (Tabelle `DIVIDEND_LIKE`) | `div-<txid>` |
+| `CASH/EARNINGS`, `PRE_DETERMINED_TAX_BASE` (Vorabpauschale), `SEC_ACCOUNT`, `TAX_OPTIMIZATION` | Betrag = `amount + tax` (meist nur `tax`): negativ → C `TAX`, positiv → C `CREDIT`/`TAX_REFUND`, 0 → `skipped` (Tabelle `TAX_ONLY`) | – |
+| `CASH/REFERRAL` | C `CREDIT`/`BONUS` (netto nach Steuer) | – |
 | `CASH/INTEREST_PAYMENT`, `MANUAL_CASH_TRANSFER` | C `INTEREST` + optional C `TAX` | – |
 | anderer `CASH`-Typ | → `skipped` („Unknown CASH type") | – |
 | andere `category` | → `skipped` („Unknown category") | – |
@@ -337,6 +339,10 @@ Weitere Konventionen:
    exakten `amount`. Fehlt er, leitet Wealthfolio ihn beim Anlegen genau so ab und
    speichert ihn – `checkImport` hasht aber den eingereichten Wert. Ohne `amount`
    würden Trades bei einem erneuten Import nie als Duplikat erkannt und doppelt angelegt.
+8. **Kommentare bestehender Typen nicht ändern.** Der Kommentar geht in den
+   Duplikat-Fingerabdruck ein (6.4). Wer z. B. „Dividend …" umformuliert, lässt alle
+   früher importierten Dividenden beim nächsten Import als neu erscheinen. Neue Typen
+   bekommen deshalb eigene Präfixe (`DIVIDEND_LIKE`), statt bestehende anzufassen.
 
 ---
 
@@ -556,10 +562,10 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 76 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
-- **`src/transform.test.ts`** (37 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
+- 85 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
+- **`src/transform.test.ts`** (46 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
-  `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (14 Zeilen → 17 Aktivitäten +
+  `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (18 Zeilen → 25 Aktivitäten +
   1 skipped) und einzelne Fälle, inkl. der Invariante „jedes interne Paar teilt eine
   `transferGroupId`" und des exakten `amount` bei `BUY`/`SELL`.
 - **`src/scalable.test.ts`** (31 Tests, Scalable Capital): Zahlen- und Zeitzonen-Parser
@@ -690,6 +696,8 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 11. **Kein echtes Auto-Update:** Ohne Listung im Wealthfolio-Store kann das Addon neue
     Versionen nur anzeigen (4.2); Download und „Install from File" bleiben manuell.
     `UpdateBanner` ist nur im echten Addon prüfbar (Netzwerkfreigabe, Sandbox).
+12. **TR-Kapitalmaßnahmen (`CORPORATE_ACTION`) werden noch übersprungen** – siehe
+    Abschnitt 16 (Stufen 2 und 3 im Backlog).
 
 ---
 
@@ -882,7 +890,52 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.0.1 | Änderung | Suchfeld im Security-Mapping ist mit dem **Wertpapiernamen** (jüngster Name aus der Datei) statt der ISIN vorbelegt. | `SecurityMappingStep.tsx`, `ImportPage.tsx` | 6.2, 7 |
 | 2.0.2 | Fix | Erneut importierte **`BUY`/`SELL`** werden als Duplikat erkannt (vorher doppelt angelegt). Trades tragen den exakten `amount` (`tradeFinalCash`). | `common.ts`, `transform.ts`, `scalable.ts` | 5.5 Nr. 7, 6.4 |
 | 2.1.0 | Feature | **Update-Hinweis:** einmal täglich Abfrage der GitHub-Releases, Hinweis mit Download-Adresse, wenn eine neuere Version existiert. Neue Berechtigung `network` (nur `api.github.com`). | `updateCheck.ts`, `UpdateBanner.tsx`, `addon.tsx`, `manifest.json` | 4.2, 9 |
+| 2.2.0 | Feature | Weitere TR-CASH-Typen: `DISTRIBUTION` und `EXCHANGE` wie Dividende, Vorabpauschale (`EARNINGS`, `PRE_DETERMINED_TAX_BASE`) und Steuerkorrekturen (`SEC_ACCOUNT`, `TAX_OPTIMIZATION`) als `TAX`/`CREDIT`-`TAX_REFUND`, `REFERRAL` als `CREDIT`/`BONUS`. | `transform.ts` | 5.4, 5.5 Nr. 8, 16 |
 | 2.1.1 | Pflege | Autor `waldonso2` in `manifest.json`/`package.json`, `.github/FUNDING.yml` (Spenden an den ursprünglichen Autor) entfernt, MIT-Copyright des ursprünglichen Autors bleibt in `LICENSE`; README gekürzt und korrigiert, mit Credits für das Original-Addon. Kein Verhaltenswechsel. | `manifest.json`, `package.json`, `LICENSE`, `README.md` | – |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3).
+
+---
+
+## 16. Nicht unterstützte Trade-Republic-Typen
+
+Ein echter TR-Export (587 Zeilen) enthielt 95 Zeilen in 15 Typen, die bis 2.1.1 in
+`skipped` landeten. Die CASH-Typen davon verschoben den Barbestand in Wealthfolio um
+gut 900 €. Umsetzung in drei Stufen:
+
+### 16.1 Stufe 1 – CASH-Typen (umgesetzt in 2.2.0)
+
+| Typ | Bedeutung | Abbildung |
+|---|---|---|
+| `DISTRIBUTION` | Ausschüttung eines Fonds/ETFs; Spalten wie `DIVIDEND` (inkl. FX, Steuer) | wie `DIVIDEND` |
+| `EXCHANGE` | Barausschüttung im Rahmen eines Aktientauschprogramms (z. B. Prosus) | wie `DIVIDEND` |
+| `EARNINGS`, `PRE_DETERMINED_TAX_BASE` | Vorabpauschale (`amount` 0, nur `tax`); `PRE_DETERMINED_TAX_BASE` ist die ältere Bezeichnung | C `TAX` |
+| `SEC_ACCOUNT` | Steuerbuchung zu einem Wertpapier, später ggf. per Gegenbuchung storniert | negativ C `TAX`, positiv C `CREDIT`/`TAX_REFUND` |
+| `TAX_OPTIMIZATION` | Steuerausgleich (Verlustverrechnung), ohne Wertpapier | wie `SEC_ACCOUNT` |
+| `REFERRAL` | Empfehlungsprämie | C `CREDIT`/`BONUS` |
+
+Steuer-Stornos (`SEC_ACCOUNT` −x / +x) werden **nicht** verrechnet, sondern als `TAX` und
+`CREDIT`/`TAX_REFUND` gebucht – der Saldo stimmt, und die Buchungen entsprechen dem Export.
+
+### 16.2 Stufe 2 – einfache Kapitalmaßnahmen (Backlog)
+
+`CORPORATE_ACTION` liefert nur Stückzahlen (`shares`), keine Beträge und keinen Einstandswert.
+
+| Typ | Beispiel | Geplante Abbildung |
+|---|---|---|
+| `SHARE_EXCHANGE`, `ADR_DISCONTINUATION`, `REORGANISATION` | alte ISIN −n, neue ISIN +n zum selben Zeitpunkt | Paar P `TRANSFER_OUT` (alte ISIN) / P `TRANSFER_IN` (neue ISIN), eigene Gruppe; Einstandswert der alten Position übernehmen |
+| `REVERSE_SPLIT` | alte ISIN −25.000, neue ISIN +38,46 | wie oben (ISIN wechselt, daher kein `SPLIT`) |
+| `WORTHLESS` | −15 Stück, wertlos ausgebucht | P `SELL` zu 0 € (realisiert den Verlust) |
+
+Offene Frage: Herkunft des Einstandswerts – aus BUY/SELL derselben Datei berechnen
+(genau, solange die Datei vollständig ist) oder vor dem Import aus Wealthfolio lesen
+(`activities.getAll`).
+
+### 16.3 Stufe 3 – Kapitalmaßnahmen mit Bestand oder Verrechnung (Backlog)
+
+| Typ | Beispiel | Geplante Abbildung |
+|---|---|---|
+| `SPLIT` | +19 Stück (nur die **zusätzlichen** Stück, ISIN bleibt) | `SPLIT` mit Verhältnis (Bestand + n) / Bestand – braucht den Bestand davor; Alternative: P `TRANSFER_IN` von n Stück zu 0 € |
+| `STOCK_DIVIDEND` | +n; später +n/−n mit Valuta des ersten Eintrags (Umbuchung) | erstes +n als `DIVIDEND`/`DIVIDEND_IN_KIND` bzw. `TRANSFER_IN` zum angegebenen Preis; das +/−-Paar verrechnen und überspringen |
+| `DIVIDEND_REINVESTMENT` | +0,73 Stück nach einer Bardividende | wie DRIP: Bardividende kommt schon über `CASH/DIVIDEND`; die Wiederanlage darf das Geld nicht doppelt zählen – an einem echten Fall prüfen |

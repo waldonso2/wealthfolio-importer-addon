@@ -41,13 +41,15 @@ broker you use. Optionally add **transfer patterns** (see below).
 | Type | Wealthfolio |
 | --- | --- |
 | Buy / Sell | BUY / SELL (fees and taxes as fee) + internal cash transfer |
-| Dividend | DIVIDEND (+ TAX for withholding, FX handled) + transfer to cash |
+| Dividend, fund distribution, share-exchange cash | DIVIDEND (+ TAX for withholding, FX handled) + transfer to cash |
+| Vorabpauschale, tax adjustments / optimisation | TAX, or CREDIT (tax refund) when positive |
 | Deposits (`CUSTOMER_INBOUND`, `TRANSFER_INBOUND`, …) | DEPOSIT |
 | Outgoing transfers (`TRANSFER_OUTBOUND`, `CUSTOMER_OUTBOUND_REQUEST`, direct debits) | WITHDRAWAL, or TRANSFER via transfer pattern |
 | Card payments / refunds | WITHDRAWAL / DEPOSIT |
-| Interest, card fee, Saveback | INTEREST, FEE, CREDIT (bonus) |
+| Interest, card fee, Saveback, referral bonus | INTEREST, FEE, CREDIT (bonus) |
 | Gifted shares (Stockperk), share delivery | BUY funded by a bonus credit, TRANSFER_IN |
 | ISIN migration | skipped |
+| Corporate actions (splits, share exchanges, stock dividends, …) | not yet supported, listed as skipped |
 
 **Scalable Capital**
 
