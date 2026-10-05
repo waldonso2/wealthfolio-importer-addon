@@ -1,5 +1,5 @@
 import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag, tradeFinalCash } from "./common";
-import type { ActivityImportEx, AddonSettings, ScRow, SkippedRow, TransformResult } from "./types";
+import type { ActivityImportEx, AddonSettings, ScRow, SkipKind, SkippedRow, TransformResult } from "./types";
 
 // Scalable Capital transaction export → Wealthfolio activities.
 // See docs/ARCHITECTURE.md section 14 for the format and the mapping rules.
@@ -122,7 +122,7 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
   for (const r of rows) ts.set(r, berlinToIso(r.Datum, r.Uhrzeit));
   const time = (r: ScRow) => new Date(ts.get(r)!).getTime();
 
-  const skip = (r: ScRow, reason: string) => {
+  const skip = (r: ScRow, reason: string, kind: SkipKind = "netted", hint?: string) => {
     consumed.add(r);
     skipped.push({
       datetime: ts.get(r)!,
@@ -130,8 +130,11 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       category: "SCALABLE",
       description: r.Wertpapiername ? `${r.Wertpapiername} — ${r.Notiz}` : r.Notiz,
       reason,
+      kind,
+      hint,
     });
   };
+  const addManually = "Add it manually in Wealthfolio if Scalable Capital booked it, and report the case so it can be supported.";
 
   // P→C cash sweep after a sale-like event, tagged as one internal transfer.
   const sweepToCash = (dt: string, amount: number, label: string, groupId: string) => {
@@ -188,7 +191,7 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       skip(c, "Dividend cancellation (Storno) — offsets the original dividend");
       skip(original, `Dividend cancelled later (${ref})`);
     } else {
-      skip(c, "Negative dividend without a matching original dividend");
+      skip(c, "Negative dividend without a matching original dividend.", "missing", addManually);
     }
   }
 
@@ -396,12 +399,12 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
         break;
 
       case "SWAP_OUT":
-        skip(r, "SWAP_OUT without a matching security transfer row");
+        skip(r, "SWAP_OUT without a matching security transfer row, so the sale price is unknown.", "missing", addManually);
         break;
 
       case "": {
         if (!r.ISIN) {
-          skip(r, "Empty type without ISIN");
+          skip(r, "Row without type and without ISIN.", "missing", addManually);
           break;
         }
         // Unpaired security transfer: in → like a TR FREE_RECEIPT, out → security TRANSFER_OUT.
@@ -425,7 +428,7 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       }
 
       default:
-        skip(r, `Unknown Scalable type: ${r.Typ}`);
+        skip(r, `Scalable Capital type ${r.Typ} isn't supported yet, so no activity was created.`, "missing", addManually);
     }
   }
 

@@ -145,15 +145,23 @@ function UploadZone({ onFile, error }: { onFile: (f: File) => void; error: strin
 
 // ─── SkippedTable ────────────────────────────────────────────────────────────
 
+// Rows Wealthfolio will be missing come first; rows that were netted out on
+// purpose need no action.
+const SKIP_STATUS: Record<NonNullable<SkippedRow["kind"]>, { label: string; className: string }> = {
+  missing: { label: "Not imported", className: "text-destructive font-medium" },
+  netted: { label: "No action needed", className: "text-muted-foreground" },
+};
+
 function SkippedTable({ rows }: { rows: SkippedRow[] }) {
   if (rows.length === 0)
     return <p className="text-muted-foreground p-3 text-xs">No rows were skipped.</p>;
+  const ordered = [...rows].sort((a, b) => Number(a.kind === "netted") - Number(b.kind === "netted"));
   return (
     <div className="max-h-96 overflow-auto">
       <table className="w-full text-xs">
         <thead className="bg-background sticky top-0 border-b">
           <tr>
-            {["Date", "Type", "Description", "Reason"].map((h) => (
+            {["Date", "Type", "Description", "Status", "Reason"].map((h) => (
               <th key={h} className="text-muted-foreground px-2 py-1.5 text-left font-medium">
                 {h}
               </th>
@@ -161,12 +169,18 @@ function SkippedTable({ rows }: { rows: SkippedRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr key={i} className="border-border/50 border-b">
+          {ordered.map((r, i) => (
+            <tr key={i} className="border-border/50 border-b align-top">
               <td className="whitespace-nowrap px-2 py-1 font-mono">{fmtDate(r.datetime)}</td>
               <td className="whitespace-nowrap px-2 py-1 font-mono">{r.type}</td>
               <td className="text-muted-foreground px-2 py-1">{truncate(r.description, 80)}</td>
-              <td className="text-muted-foreground px-2 py-1">{r.reason}</td>
+              <td className={`whitespace-nowrap px-2 py-1 ${r.kind ? SKIP_STATUS[r.kind].className : "text-muted-foreground"}`}>
+                {r.kind ? SKIP_STATUS[r.kind].label : "—"}
+              </td>
+              <td className="px-2 py-1">
+                <span className="text-muted-foreground">{r.reason}</span>
+                {r.hint && <span className="mt-0.5 block">{r.hint}</span>}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -668,6 +682,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     ).length;
     const toImportCount = valid.length + duplicates.length - userExcludedCount;
     const unsupported = parseResult?.skipped ?? [];
+    const notImported = unsupported.filter((r) => r.kind !== "netted").length;
+    const nettedOut = unsupported.length - notImported;
 
     const visibleActivities = showDuplicatesOnly
       ? checked.filter((a) => activityStatus(a) === "duplicate")
@@ -681,7 +697,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
             <h1 className="text-2xl font-semibold">Review activities</h1>
             <p className="text-muted-foreground mt-0.5 text-sm">
               {valid.length} ready · {duplicates.length} duplicates · {errors.length} errors
-              {unsupported.length > 0 && ` · ${unsupported.length} unsupported`}
+              {notImported > 0 && ` · ${notImported} not imported`}
+              {nettedOut > 0 && ` · ${nettedOut} netted out`}
             </p>
             {checkError && (
               <p className="text-destructive mt-1 text-xs">
@@ -728,7 +745,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
               <div className="flex items-center justify-between px-3 pt-3">
                 <TabsList>
                   <TabsTrigger value="activities">Activities ({checked.length})</TabsTrigger>
-                  <TabsTrigger value="unsupported">Unsupported ({unsupported.length})</TabsTrigger>
+                  <TabsTrigger value="unsupported">Skipped ({unsupported.length})</TabsTrigger>
                 </TabsList>
                 {duplicates.length > 0 && (
                   <button

@@ -164,7 +164,9 @@ describe("cash types", () => {
   it("unknown type goes to skipped", () => {
     const { activities, skipped } = transformScalable([row({ Typ: "SOMETHING", Wert: "1" })], CONFIG);
     expect(activities).toHaveLength(0);
-    expect(skipped[0].reason).toContain("Unknown Scalable type");
+    expect(skipped[0]).toMatchObject({ kind: "missing" });
+    expect(skipped[0].reason).toContain("type SOMETHING isn't supported yet");
+    expect(skipped[0].hint).toContain("Add it manually");
   });
 });
 
