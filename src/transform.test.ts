@@ -401,6 +401,35 @@ describe("Dividend-like CASH types", () => {
   });
 });
 
+describe("Dividend corrections", () => {
+  const div = (amount: string, tax: string, datetime: string, transaction_id: string) =>
+    row({ category: "CASH", type: "DIVIDEND", symbol: "DE0001", name: "Example AG", shares: "25", amount, tax, datetime, date: datetime.slice(0, 10), transaction_id });
+
+  it("a reversal cancels the closest matching dividend; the original stays booked", () => {
+    const { activities, skipped } = transform(
+      [
+        div("385", "-101.54", "2025-05-13T09:44:22.000Z", "orig"),
+        div("-385", "101.54", "2025-06-03T12:26:41.000Z", "rev"),
+        div("385", "-101.54", "2025-06-03T12:47:54.000Z", "rebook"),
+      ],
+      CONFIG,
+    );
+    const dividends = activities.filter((a) => a.activityType === "DIVIDEND");
+    expect(dividends).toHaveLength(1);
+    expect(dividends[0].date).toBe("2025-05-13T09:44:22.000Z");
+    expect(skipped.map((s) => s.reason)).toEqual([
+      "DIVIDEND reversal: cancels out with the DIVIDEND of the same day",
+      "DIVIDEND cancelled by the reversal of 2025-06-03",
+    ]);
+  });
+
+  it("a negative dividend without a matching partner is skipped, never booked as income", () => {
+    const { activities, skipped } = transform([div("-23.2", "", "2025-03-26T16:01:14.000Z", "neg")], CONFIG);
+    expect(activities).toHaveLength(0);
+    expect(skipped[0].reason).toContain("negative amount and no matching DIVIDEND");
+  });
+});
+
 describe("Tax-only CASH types", () => {
   it.each(["EARNINGS", "PRE_DETERMINED_TAX_BASE"])("%s (Vorabpauschale) → TAX on cash", (type) => {
     const { activities } = transform(
