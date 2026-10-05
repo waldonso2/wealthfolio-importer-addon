@@ -12,13 +12,13 @@ pnpm build                # Build to dist/addon.js
 pnpm bundle               # Build + create ZIP for local Wealthfolio installation testing
 ```
 
-All business logic is in `src/transform.ts` — tests live in `src/transform.test.ts` with CSV fixtures in `src/__fixtures__/`. Start there to understand how transactions are mapped.
+The mapping logic lives in the per-broker transformers — `src/transform.ts` (Trade Republic) and `src/scalable.ts` (Scalable Capital) — with shared helpers in `src/common.ts` and format detection in `src/formats.ts`. Tests live next to them (`src/transform.test.ts`, `src/scalable.test.ts`, `src/updateCheck.test.ts`) with CSV fixtures in `src/__fixtures__/`. Start with the transformer of the broker you are changing; `docs/ARCHITECTURE.md` explains the whole flow, invariants and change recipes (incl. adding a new broker, section 12.6).
 
 ## Stack
 
 - **Runtime / package manager**: Node 24, pnpm 11 (versions pinned in `.tool-versions`)
 - **Build**: Vite 8 — outputs a single `dist/addon.js` (ES module, no zip)
-- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic) and `src/scalable.test.ts` (Scalable Capital) + CSV fixtures in `src/__fixtures__/`
+- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic), `src/scalable.test.ts` (Scalable Capital, format detection, `tradeFinalCash`) and `src/updateCheck.test.ts` (update check) + CSV fixtures in `src/__fixtures__/`
 - **Type checking**: `tsc --noEmit`
 
 ## Key files
@@ -29,7 +29,9 @@ All business logic is in `src/transform.ts` — tests live in `src/transform.tes
 | `src/scalable.ts` | Scalable Capital: pure CSV-row → ActivityImport mapping, incl. netting of cancellations/depot migrations and Europe/Berlin → UTC |
 | `src/formats.ts` | Format detection + parsing (delimiter, BOM) and dispatch to the right transformer |
 | `src/common.ts` | Helpers shared by both transformers (`makeCashAct`, `matchPattern`, `sortAndNumber`, …) |
-| `src/transform.test.ts` | Full test suite for transform (unit + fixture integration) |
+| `src/transform.test.ts` | Trade Republic tests (unit + fixture integration) |
+| `src/scalable.test.ts` | Scalable Capital tests (unit + fixture integration), format detection, `tradeFinalCash` |
+| `src/updateCheck.test.ts` | Update check: version comparison, GitHub response parsing, caching, silent failures |
 | `src/__fixtures__/tr-sample.csv` | 14-row fixture covering every supported Trade Republic transaction type |
 | `src/__fixtures__/scalable-sample.csv` | 26-row fabricated Scalable fixture (BOM, CRLF, `;`, decimal comma) covering every supported Scalable type |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
@@ -59,7 +61,7 @@ Once a bump is agreed, apply it by bumping the `version` field in **both** `mani
 2. Detect the new version tag doesn't exist yet
 3. Create a GitHub release `v{version}` with the changelog section, `dist/broker-importer-addon.zip` (the installable package), and `dist/addon.js` attached
 
-This addon is registered in the wealthfolio-addons community registry as an unverified directory listing (discovery only, no in-app one-click install) — end users always install manually from the GitHub release zip, per the flow documented in `README.md`.
+This addon is not listed in the Wealthfolio store or community registry — end users always install manually from the GitHub release zip (Settings → Add-ons → Install from File), per `README.md`; the in-addon update hint (`src/updateCheck.ts`) points them to new releases.
 
 ## Two-account model
 
@@ -73,11 +75,11 @@ Scalable Capital uses the same model with its **own** account pair (`scalableCas
 
 ## Internal transfers and spending
 
-Every TRANSFER_OUT/TRANSFER_IN pair `transform.ts` generates for an internal movement (BUY funding, SELL/DIVIDEND cash sweep, or a matched Transfer Pattern with a `destinationAccountId`) is tagged with a shared `transferGroupId` (see `ActivityImportEx` in `src/types.ts`). `ImportPage.tsx` forwards that value as `sourceGroupId` on the `ActivityCreate`/`ActivityUpdate` calls it makes — this addon submits activities one at a time via `ctx.api.activities.create()`/`.update()`, never through Wealthfolio's bulk-import pipeline, so Wealthfolio's own transfer-pair auto-linker never runs; without an explicit `sourceGroupId` these pairs get miscounted as spending. `ActivityImport` (the type `transform()` returns) has no `sourceGroupId` field, and `ctx.api.activities.checkImport()` drops unknown fields, so `transferGroupId` can't ride through that round-trip — `ImportPage.tsx` re-derives it by `lineNumber` (which does survive `checkImport`) from the pre-check `transform()` output. Any new internal-transfer pair added to `transform.ts` or `scalable.ts` must get its own `transferGroupId` or it will silently inflate spending.
+Every TRANSFER_OUT/TRANSFER_IN pair the transformers (`transform.ts`, `scalable.ts`) generate for an internal movement (BUY funding, SELL/DIVIDEND cash sweep, or a matched Transfer Pattern with a `destinationAccountId`) is tagged with a shared `transferGroupId` (see `ActivityImportEx` in `src/types.ts`). `ImportPage.tsx` forwards that value as `sourceGroupId` on the `ActivityCreate`/`ActivityUpdate` calls it makes — this addon submits activities one at a time via `ctx.api.activities.create()`/`.update()`, never through Wealthfolio's bulk-import pipeline, so Wealthfolio's own transfer-pair auto-linker never runs; without an explicit `sourceGroupId` these pairs get miscounted as spending. `ActivityImport` (the type `transform()` returns) has no `sourceGroupId` field, and `ctx.api.activities.checkImport()` drops unknown fields, so `transferGroupId` can't ride through that round-trip — `ImportPage.tsx` re-derives it by `lineNumber` (which does survive `checkImport`) from the pre-check transformer output. Any new internal-transfer pair added to `transform.ts` or `scalable.ts` must get its own `transferGroupId` or it will silently inflate spending.
 
 Every `BUY`/`SELL` must set `amount: tradeFinalCash(...)` (`src/common.ts`) — the exact decimal `quantity × unitPrice ± fee`. Wealthfolio's duplicate fingerprint hashes the exact `amount`; it derives that value when a trade is created without one, but `checkImport` hashes the submitted value, so a trade without it is never recognised as a duplicate on re-import.
 
-Only **outbound** CASH types (`CUSTOMER_OUTBOUND_REQUEST`, `TRANSFER_OUTBOUND`/`TRANSFER_INSTANT_OUTBOUND`, `TRANSFER_DIRECT_DEBIT_INBOUND`) check `transferPatterns` — they default to spend (`WITHDRAWAL`) unless matched to a pattern with a `destinationAccountId`, at which point they become an internal transfer. **Inbound** CASH types (`CUSTOMER_INBOUND`/`CUSTOMER_INPAYMENT`, `TRANSFER_INBOUND`/`TRANSFER_INSTANT_INBOUND`) are intentionally always `DEPOSIT` with no pattern check — an unrecognised inbound transfer is treated as external income by design, not matched against your own accounts. Keep new CASH types consistent with this outbound/inbound split rather than adding pattern-matching to inbound types.
+Only **outbound** CASH types (`CUSTOMER_OUTBOUND_REQUEST`, `TRANSFER_OUTBOUND`/`TRANSFER_INSTANT_OUTBOUND`, `TRANSFER_DIRECT_DEBIT_INBOUND`) check `transferPatterns` — they default to spend (`WITHDRAWAL`) unless matched to a pattern with a `destinationAccountId`, at which point they become an internal transfer. **Inbound** CASH types (`CUSTOMER_INBOUND`/`CUSTOMER_INPAYMENT`, `TRANSFER_INBOUND`/`TRANSFER_INSTANT_INBOUND`) are intentionally always `DEPOSIT` with no pattern check — an unrecognised inbound transfer is treated as external income by design, not matched against your own accounts. Scalable Capital follows the same split: `Entnahme` is outbound (patterns match the `Notiz` text only — the export has no counterparty IBAN), `Einlage` is always `DEPOSIT`. Keep new CASH types consistent with this outbound/inbound split rather than adding pattern-matching to inbound types.
 
 ## Security mapping persistence
 

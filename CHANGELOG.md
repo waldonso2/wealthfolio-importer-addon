@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.1] - 2026-10-05
+
+### Changed
+
+- Author in `manifest.json` / `package.json` is now `waldonso2`; the MIT copyright notice of the original author (blastik) is kept in `LICENSE`, with a line added for this project.
+- Removed `.github/FUNDING.yml`, which pointed sponsorships to the original author.
+- README shortened and corrected (Trade Republic mapping table, transfer patterns), with a credits section linking to the original [Trade Republic Importer](https://github.com/blastik/trade-republic-importer-addon). No behavior changes.
+
 ## [2.1.0] - 2026-10-04
 
 ### Added

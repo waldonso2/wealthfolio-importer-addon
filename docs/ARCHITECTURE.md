@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.1.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.1.1 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3.
@@ -882,6 +882,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.0.1 | Änderung | Suchfeld im Security-Mapping ist mit dem **Wertpapiernamen** (jüngster Name aus der Datei) statt der ISIN vorbelegt. | `SecurityMappingStep.tsx`, `ImportPage.tsx` | 6.2, 7 |
 | 2.0.2 | Fix | Erneut importierte **`BUY`/`SELL`** werden als Duplikat erkannt (vorher doppelt angelegt). Trades tragen den exakten `amount` (`tradeFinalCash`). | `common.ts`, `transform.ts`, `scalable.ts` | 5.5 Nr. 7, 6.4 |
 | 2.1.0 | Feature | **Update-Hinweis:** einmal täglich Abfrage der GitHub-Releases, Hinweis mit Download-Adresse, wenn eine neuere Version existiert. Neue Berechtigung `network` (nur `api.github.com`). | `updateCheck.ts`, `UpdateBanner.tsx`, `addon.tsx`, `manifest.json` | 4.2, 9 |
+| 2.1.1 | Pflege | Autor `waldonso2` in `manifest.json`/`package.json`, `.github/FUNDING.yml` (Spenden an den ursprünglichen Autor) entfernt, MIT-Copyright des ursprünglichen Autors bleibt in `LICENSE`; README gekürzt und korrigiert, mit Credits für das Original-Addon. Kein Verhaltenswechsel. | `manifest.json`, `package.json`, `LICENSE`, `README.md` | – |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3).
