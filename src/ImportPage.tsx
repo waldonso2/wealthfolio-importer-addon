@@ -69,15 +69,17 @@ function applySecurityMappings(
   activities: ActivityImportEx[],
   resolvedMappings: Map<string, SecurityMapping>,
 ): ActivityImportEx[] {
+  // "custom" keeps the ISIN as the symbol. Wealthfolio rejects an equity that has
+  // no market data (e.g. delisted) unless it is manually quoted. Funds pass that
+  // check, and a requested quote mode also switches an existing asset, so only
+  // equities are marked MANUAL - decided per ISIN, because rows like DIVIDEND
+  // carry no instrumentType of their own.
+  const equityIsins = new Set(activities.filter((a) => a.instrumentType === "EQUITY").map((a) => a.symbol));
   return activities.map((a) => {
     if (!a.symbol || isCashSymbol(a.symbol)) return a;
     const m = resolvedMappings.get(a.symbol);
     if (!m) return a;
-    // "custom" keeps the ISIN as the symbol. Wealthfolio rejects an equity that has
-    // no market data (e.g. delisted) unless it is manually quoted. Funds pass that
-    // check, and a requested quote mode also switches an existing asset, so only
-    // equities are marked MANUAL.
-    if (m === "custom") return a.instrumentType === "EQUITY" ? { ...a, quoteMode: "MANUAL" } : a;
+    if (m === "custom") return equityIsins.has(a.symbol) ? { ...a, quoteMode: "MANUAL" } : a;
     return {
       ...a,
       symbol: m.canonicalSymbol || m.symbol,
