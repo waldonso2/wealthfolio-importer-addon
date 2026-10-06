@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.10.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.10.1 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -131,7 +131,7 @@ src/
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (33 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 ├── reconcile.test.ts       Tests für den Abgleich, inkl. beider Fixtures (9 Tests)
-├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (13 Tests)
+├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (14 Tests)
 └── __fixtures__/
     ├── tr-sample.csv       26 Zeilen, deckt alle unterstützten TR-Typen ab
     ├── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
@@ -719,7 +719,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 156 Tests in sechs Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts`, `reconcile.ts` und `pdf/`.
+- 157 Tests in sechs Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts`, `reconcile.ts` und `pdf/`.
 - **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
@@ -730,7 +730,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
   Formaterkennung, `tradeFinalCash`, Fixture-Test mit
   `src/__fixtures__/scalable-sample.csv` (26 Zeilen → 33 Aktivitäten + 9 skipped,
   Endbestände). Die Tests laufen unabhängig von der Zeitzone des Rechners.
-- **`src/importer.test.ts`** (13 Tests, mit nachgebauter `activities`-API):
+- **`src/importer.test.ts`** (14 Tests, mit nachgebauter `activities`-API):
   `activityStatus`, `applySecurityMappings` (Ticker, „custom“ → MANUAL je ISIN),
   `selectCandidates`, `groupIdsByLine`, `buildPayload` (create/update, `tax`,
   `quoteMode`, `sourceGroupId`), `runImport` (Fortschritt, Fehlersammlung, Retry nur der
@@ -1094,6 +1094,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
 | 2.7.0 | Feature | **Abgleich vor dem Import** (#10): Cash-Saldo nach Import im Vergleich zum Broker-Saldo aus der Datei, Warnung bei Bargeld auf dem Portfolio-Konto und negativen Beständen, Reiter „Holdings“. `parseAndTransform` liefert `brokerCash`. | `reconcile.ts`, `formats.ts`, `transform.ts`, `scalable.ts`, `ImportPage.tsx` | 6.2, 6.5 |
 | 2.8.0 | Feature | **Fehlgeschlagene Aktivitäten anzeigen und wiederholen** (#11): Tabelle mit Wealthfolios Fehlermeldung, „Retry N failed“ (behält `sourceGroupId`), CSV zum Kopieren. **Import-Logik in `importer.ts`** ausgelagert (#13 Stufe 1), ohne Verhaltensänderung, mit Tests. | `importer.ts`, `ImportPage.tsx` | 3, 6.2, 6.3, 10, 12.5 |
+| 2.10.1 | Fix (Anzeige) | Import-Button und Ergebnisseite zählen bestehende Aktivitäten (Duplikate, die aktualisiert werden) getrennt von neuen: „Import 3 new · update 6 existing“, Kacheln „New“/„Updated“. `ImportRun.updated`, `importButtonLabel`. | `importer.ts`, `ImportPage.tsx` | 6.2 |
 | 2.10.0 | Feature | **PDF-Belege** (#15): beliebig viele Kauf-, Verkaufs- und Dividendenbelege eines Brokers (Trade Republic, Scalable Capital, DKB) pro Import; Broker am Inhalt erkannt, Import in das Kontenpaar des Brokers aus den Einstellungen (neu: DKB-Paar). pdf.js im Hauptthread. | `pdf/*`, `formats.ts`, `types.ts`, `settings.ts`, `ImportPage.tsx`, `SettingsPage.tsx`, `vite.config.ts` | 3, 8.1, 17 |
 | 2.9.0 | Änderung (Datenänderung) | **Scalable an 2.6.0 angeglichen** (#26): Kauf/Verkauf mit `fee` = Gebühren und `tax` = Steuern statt beides in `fee`; negative Steuern als `CREDIT`/`TAX_REFUND`. Dividenden unverändert (Export ohne Steuer). **Bereits importierte Scalable-Verkäufe mit Steuer gelten nicht mehr als Duplikat.** | `scalable.ts` | 13 Nr. 14, 14.3 |
 

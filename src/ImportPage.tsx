@@ -29,6 +29,7 @@ import {
   failedAsCsv,
   firstError,
   groupIdsByLine,
+  importButtonLabel,
   runImport,
   selectCandidates,
   type FailedActivity,
@@ -158,6 +159,8 @@ function SkippedTable({ rows }: { rows: SkippedRow[] }) {
 interface ImportOutcome {
   total: number;
   imported: number;
+  // Of `imported`: existing activities that were updated.
+  updated: number;
   userSkipped: number;
   failed: FailedActivity[];
   // Kept so a retry sends the failed activities with their sourceGroupId.
@@ -595,6 +598,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       setImportResult({
         total: candidates.length + userSkipped,
         imported: run.imported,
+        updated: run.updated,
         userSkipped,
         failed: run.failed,
         groupIdByLine,
@@ -617,7 +621,12 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         importResult.failed.map((f) => f.activity),
         importResult.groupIdByLine,
       );
-      setImportResult({ ...importResult, imported: importResult.imported + run.imported, failed: run.failed });
+      setImportResult({
+        ...importResult,
+        imported: importResult.imported + run.imported,
+        updated: importResult.updated + run.updated,
+        failed: run.failed,
+      });
       if (run.imported > 0) await refreshPortfolio();
     } finally {
       setRetrying(false);
@@ -766,7 +775,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     const userExcludedCount = duplicates.filter(
       (a) => a.lineNumber != null && excludedLines.has(a.lineNumber),
     ).length;
-    const toImportCount = valid.length + duplicates.length - userExcludedCount;
+    const toUpdateCount = duplicates.length - userExcludedCount;
+    const toImportCount = valid.length + toUpdateCount;
     const unsupported = parseResult?.skipped ?? [];
     const notImported = unsupported.filter((r) => r.kind !== "netted").length;
     const nettedOut = unsupported.length - notImported;
@@ -806,7 +816,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
               Back
             </Button>
             <Button onClick={handleImport} disabled={toImportCount === 0}>
-              Import {toImportCount} activities
+              {importButtonLabel(valid.length, toUpdateCount)}
             </Button>
           </div>
         </div>
@@ -922,7 +932,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   // ── Done ─────────────────────────────────────────────────────────────────
 
   if (step === "done" && importResult) {
-    const { total, imported, userSkipped, failed } = importResult;
+    const { total, imported, updated, userSkipped, failed } = importResult;
+    const created = imported - updated;
     const ok = failed.length === 0;
 
     return (
@@ -936,12 +947,15 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           )}
           <div>
             <h1 className="text-2xl font-semibold">{ok ? "Import complete" : "Import finished with issues"}</h1>
-            <p className="text-muted-foreground text-sm">{imported} activities imported successfully.</p>
+            <p className="text-muted-foreground text-sm">
+              {created} new {created === 1 ? "activity" : "activities"} imported
+              {updated > 0 && `, ${updated} existing updated`}.
+            </p>
           </div>
         </div>
 
         {/* Summary tiles */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-5 gap-3">
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold">{total}</p>
@@ -950,8 +964,14 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{imported}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Imported</p>
+              <p className="text-2xl font-bold text-green-600">{created}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">New</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold">{updated}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">Updated</p>
             </CardContent>
           </Card>
           <Card>

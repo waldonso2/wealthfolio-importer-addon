@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.10.1] - 2026-10-06
+
+### Fixed
+
+- The import button no longer counts activities that already exist in Wealthfolio as imports. Those duplicates are only updated, so the button now says e.g. "Import 3 new · update 6 existing", or "Update 6 existing" when nothing is new.
+- The result page shows new and updated activities in separate tiles.
+
 ## [2.10.0] - 2026-10-06
 
 ### Added

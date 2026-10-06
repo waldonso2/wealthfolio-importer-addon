@@ -8,6 +8,7 @@ import {
   failedAsCsv,
   firstError,
   groupIdsByLine,
+  importButtonLabel,
   runImport,
   selectCandidates,
   type ActivitiesApi,
@@ -171,7 +172,7 @@ describe("runImport", () => {
     const { api, create, update } = fakeApi();
     const progress = vi.fn();
     const run = await runImport(api, pair, groups, progress);
-    expect(run).toEqual({ imported: 3, failed: [] });
+    expect(run).toEqual({ imported: 3, updated: 1, failed: [] });
     expect(create).toHaveBeenCalledTimes(2);
     expect(create.mock.calls.map((c) => (c[0] as { sourceGroupId?: string }).sourceGroupId)).toEqual(["buy-1", "buy-1"]);
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ id: "existing" }));
@@ -194,9 +195,18 @@ describe("runImport", () => {
     broken = false;
     create.mockClear();
     const retry = await runImport(api, first.failed.map((f) => f.activity), groups);
-    expect(retry).toEqual({ imported: 1, failed: [] });
+    expect(retry).toEqual({ imported: 1, updated: 0, failed: [] });
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][0]).toMatchObject({ comment: "in", sourceGroupId: "buy-1" });
+  });
+});
+
+describe("importButtonLabel", () => {
+  it("counts updated duplicates separately from new activities", () => {
+    expect(importButtonLabel(5, 0)).toBe("Import 5 activities");
+    expect(importButtonLabel(1, 0)).toBe("Import 1 activity");
+    expect(importButtonLabel(0, 6)).toBe("Update 6 existing");
+    expect(importButtonLabel(3, 6)).toBe("Import 3 new · update 6 existing");
   });
 });
 

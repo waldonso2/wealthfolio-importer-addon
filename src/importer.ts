@@ -125,8 +125,18 @@ export interface FailedActivity {
 }
 
 export interface ImportRun {
+  // Activities Wealthfolio accepted: new ones plus `updated` existing ones.
   imported: number;
+  updated: number;
   failed: FailedActivity[];
+}
+
+// Text of the import button. Duplicates are existing activities that get
+// updated, not imported again, so they are counted separately.
+export function importButtonLabel(newCount: number, updateCount: number): string {
+  if (updateCount === 0) return `Import ${newCount} ${newCount === 1 ? "activity" : "activities"}`;
+  if (newCount === 0) return `Update ${updateCount} existing`;
+  return `Import ${newCount} new · update ${updateCount} existing`;
 }
 
 export function errorMessage(e: unknown): string {
@@ -151,7 +161,7 @@ export async function runImport(
   groupIdByLine: Map<number, string>,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ImportRun> {
-  const run: ImportRun = { imported: 0, failed: [] };
+  const run: ImportRun = { imported: 0, updated: 0, failed: [] };
   for (let i = 0; i < activities.length; i++) {
     const a = activities[i];
     const sourceGroupId = a.lineNumber != null ? groupIdByLine.get(a.lineNumber) : undefined;
@@ -160,6 +170,7 @@ export async function runImport(
       if (p.kind === "update") await api.update(p.payload);
       else await api.create(p.payload);
       run.imported++;
+      if (p.kind === "update") run.updated++;
     } catch (e) {
       run.failed.push({ activity: a, error: errorMessage(e) });
     }
