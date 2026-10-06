@@ -15,7 +15,14 @@ import { loadSettings, saveSettings } from "./settings";
 import { SecurityMappingStep } from "./SecurityMappingStep";
 import type { SecurityInfo, SecurityMapping } from "./SecurityMappingStep";
 import { isCashSymbol } from "./common";
-import { FORMAT_LABEL, formatAccounts, isFormatConfigured, parseAndTransform, type ImportFormat } from "./formats";
+import {
+  FORMAT_LABEL,
+  formatAccounts,
+  isFormatConfigured,
+  parseAndTransform,
+  type ImportFormat,
+  type ParseOutcome,
+} from "./formats";
 import {
   activityStatus,
   applySecurityMappings,
@@ -26,6 +33,7 @@ import {
   selectCandidates,
   type FailedActivity,
 } from "./importer";
+import { parsePdfFiles } from "./pdf";
 import { cashDifference, reconcile, type Reconciliation } from "./reconcile";
 import type { AddonSettings, SkippedRow, TransformResult } from "./types";
 
@@ -51,17 +59,17 @@ function displayAmount(a: ActivityImport): string {
 
 // ─── UploadZone ─────────────────────────────────────────────────────────────
 
-function UploadZone({ onFile, error }: { onFile: (f: File) => void; error: string }) {
+function UploadZone({ onFiles, error, busy }: { onFiles: (f: File[]) => void; error: string; busy: string }) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) onFile(file);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) onFiles(files);
     },
-    [onFile],
+    [onFiles],
   );
   return (
     <div
@@ -81,17 +89,19 @@ function UploadZone({ onFile, error }: { onFile: (f: File) => void; error: strin
       <input
         ref={inputRef}
         type="file"
-        accept=".csv"
+        accept=".csv,.pdf"
+        multiple
         className="hidden"
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onFile(file);
+          const files = Array.from(e.target.files ?? []);
+          if (files.length > 0) onFiles(files);
           e.target.value = "";
         }}
       />
       <Icons.Upload className="text-muted-foreground mx-auto mb-3 h-8 w-8" />
-      <p className="text-sm font-medium">Drop your Trade Republic or Scalable Capital CSV here</p>
+      <p className="text-sm font-medium">Drop a CSV export or any number of PDF statements here</p>
       <p className="text-muted-foreground mt-1 text-xs">or click to browse</p>
+      {busy && <p className="text-muted-foreground mt-3 text-xs">{busy}</p>}
       {error && <p className="text-destructive mt-3 text-xs">{error}</p>}
     </div>
   );
@@ -192,7 +202,17 @@ const fmtShares = (q: number) => q.toLocaleString(undefined, { maximumFractionDi
 
 // What the broker's two accounts will look like after the import, from the file
 // alone - so mapping errors show up before anything reaches Wealthfolio.
-function ReconcileSummary({ rec, broker, notImported }: { rec: Reconciliation; broker: string; notImported: number }) {
+function ReconcileSummary({
+  rec,
+  broker,
+  notImported,
+  fromPdf,
+}: {
+  rec: Reconciliation;
+  broker: string;
+  notImported: number;
+  fromPdf: boolean;
+}) {
   const diff = cashDifference(rec);
   const cashEntries = Object.entries(rec.cash);
   const leftover = Object.entries(rec.portfolioCash);
@@ -202,7 +222,9 @@ function ReconcileSummary({ rec, broker, notImported }: { rec: Reconciliation; b
       <CardContent className="space-y-2 p-4 text-sm">
         <div className="flex flex-wrap gap-x-8 gap-y-2">
           <div>
-            <p className="text-muted-foreground text-xs">Cash account after import</p>
+            <p className="text-muted-foreground text-xs">
+              {fromPdf ? "Cash account change from these statements" : "Cash account after import"}
+            </p>
             <p className="font-medium">
               {cashEntries.length === 0 ? "0.00" : cashEntries.map(([c, v]) => fmtMoney(v, c)).join(" · ")}
             </p>
@@ -232,15 +254,23 @@ function ReconcileSummary({ rec, broker, notImported }: { rec: Reconciliation; b
             <p className="font-medium">{rec.holdings.length} (see Holdings)</p>
           </div>
         </div>
-        {rec.negative.length > 0 && (
-          <p className="text-destructive text-xs">
-            Negative holdings — rows are missing or mapped wrongly:{" "}
-            {rec.negative.map((n) => `${n.name || n.symbol} (${fmtShares(n.quantity)} on ${n.date})`).join(", ")}
-          </p>
-        )}
+        {rec.negative.length > 0 &&
+          (fromPdf ? (
+            <p className="text-muted-foreground text-xs">
+              Sold without a purchase in these statements - fine if the position is already in
+              Wealthfolio:{" "}
+              {rec.negative.map((n) => `${n.name || n.symbol} (${fmtShares(n.quantity)} on ${n.date})`).join(", ")}
+            </p>
+          ) : (
+            <p className="text-destructive text-xs">
+              Negative holdings — rows are missing or mapped wrongly:{" "}
+              {rec.negative.map((n) => `${n.name || n.symbol} (${fmtShares(n.quantity)} on ${n.date})`).join(", ")}
+            </p>
+          ))}
         <p className="text-muted-foreground text-xs">
-          Computed from this file only. Compare with your {broker} app; if the file doesn't cover the full history, the
-          balance and holdings differ.
+          {fromPdf
+            ? `Computed from these statements only. They hold trades and dividends but no deposits or withdrawals, so the cash account doesn't show your ${broker} balance. Don't import the same period from the CSV export as well - CSV and PDF activities aren't recognised as duplicates of each other.`
+            : `Computed from this file only. Compare with your ${broker} app; if the file doesn't cover the full history, the balance and holdings differ.`}
         </p>
       </CardContent>
     </Card>
@@ -346,6 +376,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
 
   const [parseResult, setParseResult] = useState<TransformResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const [fromPdf, setFromPdf] = useState(false);
+  const [reading, setReading] = useState("");
   const [format, setFormat] = useState<ImportFormat | null>(null);
   const [brokerCash, setBrokerCash] = useState<{ currency: string; amount: number } | null>(null);
   const [securities, setSecurities] = useState<SecurityInfo[]>([]);
@@ -374,6 +406,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       if (id === settings.portfolioAccountId) return "TR Portfolio";
       if (id === settings.scalableCashAccountId) return "Scalable Cash";
       if (id === settings.scalablePortfolioAccountId) return "Scalable Portfolio";
+      if (id === settings.dkbCashAccountId) return "DKB Cash";
+      if (id === settings.dkbPortfolioAccountId) return "DKB Portfolio";
       return accounts.find((a) => a.id === id)?.name ?? id;
     },
     [settings, accounts],
@@ -415,25 +449,48 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
 
   // ── Upload & transform ────────────────────────────────────────────────────
 
-  const handleFile = useCallback(
-    async (file: File) => {
+  // One CSV export, or any number of PDF statements of one broker.
+  const readFiles = useCallback(
+    async (files: File[]): Promise<{ outcome: ParseOutcome; name: string; pdf: boolean } | string> => {
+      if (!settings) return "Settings are still loading.";
+      const isPdf = (f: File) => f.name.toLowerCase().endsWith(".pdf");
+      const isCsv = (f: File) => f.name.toLowerCase().endsWith(".csv");
+      if (files.every(isPdf)) {
+        setReading(`Reading ${files.length} PDF${files.length === 1 ? "" : "s"}…`);
+        try {
+          const data = await Promise.all(files.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })));
+          const outcome = await parsePdfFiles(data, settings);
+          const name = files.length === 1 ? files[0].name : `${files.length} PDF statements`;
+          return { outcome, name, pdf: true };
+        } finally {
+          setReading("");
+        }
+      }
+      if (files.length === 1 && isCsv(files[0])) {
+        try {
+          return { outcome: parseAndTransform(await files[0].text(), settings), name: files[0].name, pdf: false };
+        } catch {
+          return "Could not read the file.";
+        }
+      }
+      return files.some(isCsv)
+        ? "Upload one CSV export at a time, without PDFs."
+        : "Please upload a .csv export (Trade Republic, Scalable Capital) or .pdf statements (Trade Republic, Scalable Capital, DKB).";
+    },
+    [settings],
+  );
+
+  const handleFiles = useCallback(
+    async (files: File[]) => {
       if (!settings) return;
       setFileError("");
 
-      if (!file.name.toLowerCase().endsWith(".csv")) {
-        setFileError("Please upload a .csv file exported from Trade Republic or Scalable Capital.");
+      const read = await readFiles(files);
+      if (typeof read === "string") {
+        setFileError(read);
         return;
       }
-
-      let text: string;
-      try {
-        text = await file.text();
-      } catch {
-        setFileError("Could not read the file.");
-        return;
-      }
-
-      const outcome = parseAndTransform(text, settings);
+      const { outcome } = read;
       if (!outcome.ok) {
         setFileError(outcome.error);
         return;
@@ -442,8 +499,9 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       const { result } = outcome;
       setParseResult(result);
       setFormat(outcome.format);
-      setBrokerCash(outcome.brokerCash);
-      setFileName(file.name);
+      setBrokerCash(outcome.brokerCash ?? null);
+      setFileName(read.name);
+      setFromPdf(read.pdf);
       setChecked(null);
       setExcludedLines(new Set());
       setShowDuplicatesOnly(false);
@@ -485,7 +543,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         setStep("asset-review");
       }
     },
-    [settings, runCheckImport],
+    [settings, readFiles, runCheckImport],
   );
 
   const toggleExclude = useCallback((lineNumber: number) => {
@@ -572,6 +630,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     setStep("upload");
     setParseResult(null);
     setFileName("");
+    setFromPdf(false);
     setFormat(null);
     setBrokerCash(null);
     setSecurities([]);
@@ -598,7 +657,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   if (
     settings &&
     !isFormatConfigured("trade-republic", settings) &&
-    !isFormatConfigured("scalable", settings)
+    !isFormatConfigured("scalable", settings) &&
+    !isFormatConfigured("dkb", settings)
   ) {
     return (
       <div className="max-w-lg p-6">
@@ -608,7 +668,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
             <p className="font-medium">Settings not configured</p>
             <p className="text-muted-foreground text-sm">
               Please go to the <strong>Settings</strong> tab and select the Cash and Portfolio
-              accounts for Trade Republic and/or Scalable Capital before importing.
+              accounts for Trade Republic, Scalable Capital and/or DKB before importing.
             </p>
           </CardContent>
         </Card>
@@ -623,10 +683,12 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     return (
       <div className="max-w-xl space-y-4 p-6">
         <div>
-          <h1 className="text-2xl font-semibold">Import broker CSV</h1>
+          <h1 className="text-2xl font-semibold">Import broker CSV or PDF statements</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Trade Republic: Settings → Documents → Transaction history. Scalable Capital: export
-            your transactions as CSV. The format is detected automatically.
+            CSV: Trade Republic (Settings → Documents → Transaction history) or Scalable Capital
+            (transaction export). PDF: trade and dividend statements from Trade Republic, Scalable
+            Capital or DKB - select as many of one broker as you like. The broker is detected
+            automatically.
           </p>
         </div>
         {parseResult && fileName ? (
@@ -659,7 +721,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
             {fileError && <p className="text-destructive text-xs">{fileError}</p>}
           </div>
         ) : (
-          <UploadZone onFile={handleFile} error={fileError} />
+          <UploadZone onFiles={handleFiles} error={fileError} busy={reading} />
         )}
       </div>
     );
@@ -749,7 +811,9 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           </div>
         </div>
 
-        {rec && format && <ReconcileSummary rec={rec} broker={FORMAT_LABEL[format]} notImported={notImported} />}
+        {rec && format && (
+          <ReconcileSummary rec={rec} broker={FORMAT_LABEL[format]} notImported={notImported} fromPdf={fromPdf} />
+        )}
 
         {/* Duplicate banner */}
         {duplicates.length > 0 && (

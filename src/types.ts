@@ -64,6 +64,9 @@ export interface AddonSettings {
   scalableCashAccountId: string;
   scalableCashCurrency: string;
   scalablePortfolioAccountId: string;
+  // DKB has no CSV import; its PDF statements import into this pair.
+  dkbCashAccountId: string;
+  dkbPortfolioAccountId: string;
   transferPatterns: TransferPattern[];
   // ISIN -> resolved mapping, persisted so recurring imports of the same
   // security don't require re-mapping every time.

@@ -16,6 +16,8 @@ const CONFIG: AddonSettings = {
   scalableCashAccountId: "",
   scalableCashCurrency: "EUR",
   scalablePortfolioAccountId: "",
+  dkbCashAccountId: "",
+  dkbPortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
 };

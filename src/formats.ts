@@ -3,13 +3,15 @@ import { scalableBrokerCash, transformScalable } from "./scalable";
 import { transform, trBrokerCash } from "./transform";
 import type { AddonSettings, ScRow, TransformResult, TrRow } from "./types";
 
-// Supported CSV exports. The format is detected from the header line, so the
-// user never has to pick it.
-export type ImportFormat = "trade-republic" | "scalable";
+// Supported brokers. CSV exports (Trade Republic, Scalable Capital) are told
+// apart by their header line, PDF statements (all three, src/pdf/) by their
+// content, so the user never has to pick the broker.
+export type ImportFormat = "trade-republic" | "scalable" | "dkb";
 
 export const FORMAT_LABEL: Record<ImportFormat, string> = {
   "trade-republic": "Trade Republic",
   scalable: "Scalable Capital",
+  dkb: "DKB",
 };
 
 function stripBom(text: string): string {
@@ -23,14 +25,20 @@ export function detectFormat(text: string): ImportFormat | null {
   return null;
 }
 
-// The Wealthfolio cash/securities account pair a format imports into.
+// The Wealthfolio cash/securities account pair a broker imports into - the
+// same pair for its CSV export and its PDF statements.
 export function formatAccounts(
   format: ImportFormat,
   settings: AddonSettings,
 ): { cashAccountId: string; portfolioAccountId: string } {
-  return format === "scalable"
-    ? { cashAccountId: settings.scalableCashAccountId, portfolioAccountId: settings.scalablePortfolioAccountId }
-    : { cashAccountId: settings.cashAccountId, portfolioAccountId: settings.portfolioAccountId };
+  switch (format) {
+    case "scalable":
+      return { cashAccountId: settings.scalableCashAccountId, portfolioAccountId: settings.scalablePortfolioAccountId };
+    case "dkb":
+      return { cashAccountId: settings.dkbCashAccountId, portfolioAccountId: settings.dkbPortfolioAccountId };
+    default:
+      return { cashAccountId: settings.cashAccountId, portfolioAccountId: settings.portfolioAccountId };
+  }
 }
 
 export function isFormatConfigured(format: ImportFormat, settings: AddonSettings): boolean {
@@ -40,8 +48,9 @@ export function isFormatConfigured(format: ImportFormat, settings: AddonSettings
 
 export type ParseOutcome =
   // brokerCash: the broker's own cash balance computed from the export, to
-  // compare against the imported cash account (reconcile.ts).
-  | { ok: true; format: ImportFormat; result: TransformResult; brokerCash: { currency: string; amount: number } }
+  // compare against the imported cash account (reconcile.ts). PDF statements
+  // have none.
+  | { ok: true; format: ImportFormat; result: TransformResult; brokerCash?: { currency: string; amount: number } }
   | { ok: false; error: string };
 
 export function parseAndTransform(text: string, settings: AddonSettings): ParseOutcome {

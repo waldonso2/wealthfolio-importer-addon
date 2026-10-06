@@ -110,11 +110,12 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
   const handleSave = async () => {
     const tr = [settings.cashAccountId, settings.portfolioAccountId];
     const sc = [settings.scalableCashAccountId, settings.scalablePortfolioAccountId];
+    const dkb = [settings.dkbCashAccountId, settings.dkbPortfolioAccountId];
     const complete = (pair: string[]) => pair.every(Boolean);
     const partial = (pair: string[]) => pair.some(Boolean) && !complete(pair);
-    if (partial(tr) || partial(sc) || (!complete(tr) && !complete(sc))) {
+    if ([tr, sc, dkb].some(partial) || ![tr, sc, dkb].some(complete)) {
       setError(
-        "Select both the cash and the securities account for each broker you import from (Trade Republic and/or Scalable Capital).",
+        "Select both the cash and the securities account for each broker you import from (Trade Republic, Scalable Capital and/or DKB).",
       );
       return;
     }
@@ -218,6 +219,46 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
               accounts={accounts}
               value={settings.scalablePortfolioAccountId}
               onChange={(v) => set({ scalablePortfolioAccountId: v })}
+              placeholder="Select securities account…"
+              filterType="SECURITIES"
+            />
+            <p className="text-muted-foreground text-xs">
+              Receives buy/sell trades and dividends, with internal transfers to the cash account.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* DKB accounts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">DKB accounts</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-muted-foreground text-xs">
+            DKB has no CSV import; its PDF trade and dividend statements are imported into this pair.
+            Trade Republic and Scalable Capital PDFs use the accounts above. Leave empty if you don't
+            use DKB.
+          </p>
+          <div className="space-y-1">
+            <Label>DKB cash account</Label>
+            <AccountSelect
+              accounts={accounts}
+              value={settings.dkbCashAccountId}
+              onChange={(v) => set({ dkbCashAccountId: v })}
+              placeholder="Select cash account…"
+              filterType="CASH"
+            />
+            <p className="text-muted-foreground text-xs">
+              The Girokonto the trades are settled with; receives the cash side of trades and dividends.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label>DKB securities account</Label>
+            <AccountSelect
+              accounts={accounts}
+              value={settings.dkbPortfolioAccountId}
+              onChange={(v) => set({ dkbPortfolioAccountId: v })}
               placeholder="Select securities account…"
               filterType="SECURITIES"
             />

@@ -15,6 +15,8 @@ const CONFIG: AddonSettings = {
   scalableCashAccountId: "sc-cash",
   scalableCashCurrency: "EUR",
   scalablePortfolioAccountId: "sc-portfolio",
+  dkbCashAccountId: "",
+  dkbPortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
 };
@@ -117,7 +119,7 @@ describe("fixtures: imported cash account vs. the broker's balance", () => {
     const outcome = parseAndTransform(csv, CONFIG);
     if (!outcome.ok) throw new Error(outcome.error);
     const r = reconcile(outcome.result.activities, TR, outcome.brokerCash);
-    expect(outcome.brokerCash.currency).toBe("EUR");
+    expect(outcome.brokerCash?.currency).toBe("EUR");
     expect(cashDifference(r)).toBe(0);
     expect(r.portfolioCash).toEqual({});
     expect(r.negative).toEqual([]);

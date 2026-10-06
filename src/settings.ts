@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS: AddonSettings = {
   scalableCashAccountId: "",
   scalableCashCurrency: "EUR",
   scalablePortfolioAccountId: "",
+  dkbCashAccountId: "",
+  dkbPortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
 };
