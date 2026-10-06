@@ -65,7 +65,7 @@ broker you use. Optionally add **transfer patterns** (see below).
 
 | Typ | Wealthfolio |
 | --- | --- |
-| Kauf / Verkauf | BUY / SELL + internal cash transfer |
+| Kauf / Verkauf | BUY / SELL with fee and tax in their own fields + internal cash transfer |
 | Dividende | DIVIDEND (net) + transfer to cash; cancellations are netted out |
 | Einlage / Entnahme | DEPOSIT / WITHDRAWAL, or TRANSFER via transfer pattern |
 | Zinsen, FEE, TAX, Steuerrückerstattung | INTEREST, FEE, TAX, CREDIT (tax refund) |

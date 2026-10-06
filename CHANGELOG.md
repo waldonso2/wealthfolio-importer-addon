@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.9.0] - 2026-10-06
+
+### Changed
+
+- Scalable Capital buys and sells now carry fee ("Gebühren") and tax ("Steuern") in Wealthfolio's separate fee and tax fields, like Trade Republic since 2.6.0. Before, the tax was added to the fee. A negative tax (refund) on a trade is booked as a tax-refund credit.
+- Scalable dividends are unchanged: the export only has the net amount, without the tax.
+
+### Upgrade note
+
+- Scalable sells with tax no longer match their earlier imports (the fee changed) and are not recognised as duplicates. Before re-importing a Scalable export, delete those sells in Wealthfolio, or empty the two Scalable accounts and re-import the full export. Buys without tax are unaffected.
+
 ## [2.8.0] - 2026-10-06
 
 ### Added
