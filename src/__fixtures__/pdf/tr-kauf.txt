@@ -1,0 +1,22 @@
+TRADE REPUBLIC BANK GMBH BRUNNENSTRASSE 19-21 10119 BERLIN
+Erika Mustermann SEITE 1 von 1
+Musterweg 1 DATUM 03.03.2026
+12345 Musterstadt AUFTRAG a1b2-c3d4
+AUSFÜHRUNG e5f6-0789
+DEPOT 0000000001
+WERTPAPIERABRECHNUNG
+ÜBERSICHT
+Limit-Order Kauf am 03.03.2026, um 09:15 Uhr mit Bestpreis unter allen relevanten Börsen gegen Lang & Schwarz Exchange (MIC: HAML).
+POSITION ANZAHL PREIS BETRAG
+Test World Equity EUR (Acc) 120 Stk. 25,125 EUR 3.015,00 EUR
+ISIN: IE00TEST0001
+GESAMT 3.015,00 EUR
+ABRECHNUNG
+POSITION BETRAG
+Abwicklungspauschale -1,00 EUR
+GESAMT -3.016,00 EUR
+BUCHUNG
+VERRECHNUNGSKONTO WERTSTELLUNG BETRAG
+DE00000000000000000001 2026-03-05 -3.016,00 EUR
+Test World Equity EUR (Acc) in Girosammelverwahrung in Deutschland
+Diese Abrechnung wird maschinell erstellt und daher nicht unterschrieben.

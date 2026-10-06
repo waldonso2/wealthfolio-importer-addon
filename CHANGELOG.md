@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.10.0] - 2026-10-06
+
+### Added
+
+- PDF statements: drop any number of PDF statements of one broker at once. Supported are trade statements (buy, sell; Trade Republic also savings plan, round-up and Saveback) and dividend/distribution statements from Trade Republic, Scalable Capital and DKB.
+  - The broker is detected from the document. The PDFs import into the same cash and securities accounts as that broker's CSV export; DKB gets its own account pair in Settings.
+  - Fee and tax go into their own fields. Dividends carry the gross income, withholding and German tax, and the original foreign amount in the comment. This also gives Scalable dividends the tax that their CSV export lacks.
+  - Documents that aren't supported or can't be read are listed under **Skipped** with the reason. A statement uploaded twice is imported once, and a re-import of the same statement is recognised as a duplicate.
+- Settings: account pair for DKB.
+
+### Notes
+
+- Don't import the same period from a broker's CSV export and its PDF statements: CSV and PDF activities aren't recognised as duplicates of each other.
+- The addon file is about 2 MB larger because it now bundles pdf.js.
+
 ## [2.9.0] - 2026-10-06
 
 ### Changed

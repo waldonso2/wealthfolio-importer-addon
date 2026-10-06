@@ -1,0 +1,17 @@
+Scalable Capital Bank GmbH • Seitzstraße 8e • 80538 München • Deutschland
+Erika Mustermann
+Musterweg 1
+12345 Musterstadt Datum 16.06.2026
+Deutschland Seite 1 / 1
+Wertpapierabrechnung
+für Kundenauftrag
+Typ LIMIT Order SCALTEST0000001
+Ausführung 16.06.2026 19:38:52 Geschäft 1000000001
+Ausführungsplatz EIX Lagerland Luxemburg
+Depot 0000000002 Verwahrart Wertpapierrechnung
+Typ Wertpapier Anzahl Kurs Betrag
+Kauf Test S&P 500 (Dist) 4,00 Stk. 600,50 EUR 2.402,00 EUR
+IE00TEST0004
+Ordergebühren +0,99 EUR
+Belastung 2.402,99 EUR
+Der Betrag wird mit dem Verrechnungskonto DE00000000000000000002 (Valuta: 18.06.2026) verrechnet.

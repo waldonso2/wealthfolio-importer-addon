@@ -1,0 +1,25 @@
+Scalable Capital Bank GmbH • Seitzstraße 8e • 80538 München • Deutschland
+Erika Mustermann
+Musterweg 1
+12345 Musterstadt Datum 16.02.2026
+Deutschland Seite 1 / 2
+Wertpapierabrechnung
+für Kundenauftrag
+Typ LIMIT Order SCALTEST0000002
+Ausführung 16.02.2026 07:30:13 Geschäft 1000000002
+Ausführungsplatz EIX Lagerland Luxemburg
+Depot 0000000002 Verwahrart Wertpapierrechnung
+Typ Wertpapier Anzahl Kurs Betrag
+Verkauf Test Gaming (Acc) 50,00 Stk. 40,00 EUR 2.000,00 EUR
+IE00TEST0005
+Ordergebühren -0,99 EUR
+Steuern -52,75 EUR
+Gutschrift 1.946,26 EUR
+Der Betrag wird mit dem Verrechnungskonto DE00000000000000000002 (Valuta: 18.02.2026) verrechnet.
+Wertpapierabrechnung
+Verkauf 50,00 Stk. Test Gaming (Acc)
+Anfallende Steuern
+Typ Betrag
+Kapitalertragsteuer 50,00 EUR
+Solidaritätszuschlag 2,75 EUR
+Anfallende Steuern 52,75 EUR

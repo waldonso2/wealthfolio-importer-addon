@@ -1,0 +1,19 @@
+Scalable Capital Bank GmbH • Seitzstraße 8e, 80538 München
+Erika Mustermann
+Musterweg 1
+12345 Musterstadt Datum 28.09.2026
+Deutschland Seite 1 / 2
+Dividende
+Für 01.04.2026 - 31.03.2027
+Berechtigtes Wertpapier TEST S&P 500 U.E.
+ISIN IE00TEST0004
+Berechtigte Anzahl 10
+Ex Tag 21.09.2026
+Verrechnungskonto DE00000000000000000002 (TESTDEFFXXX)
+Kontobewegung
+Buchung Wertstellung Typ Betrag / Stk. Anzahl Gesamt
+Wechselkurs
+28.09.2026 29.09.2026 Gutschrift 2,20 USD 10 20,00 EUR
+USD / EUR 1,1000
+Steuern -3,69 EUR
+Gesamtbetrag 16,31 EUR

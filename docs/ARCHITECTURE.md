@@ -1,15 +1,16 @@
-# Architektur – Broker Importer Addon (Trade Republic & Scalable Capital)
+# Architektur – Broker Importer Addon (Trade Republic, Scalable Capital, DKB)
 
 Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt und
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.9.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.10.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
 > wie die zunächst nicht unterstützten Trade-Republic-Typen (Ausschüttungen, Steuern,
-> Kapitalmaßnahmen) in drei Stufen dazukamen.
+> Kapitalmaßnahmen) in drei Stufen dazukamen; **Abschnitt 17** beschreibt den Import von
+> PDF-Belegen (Trade Republic, Scalable Capital, DKB).
 > Zeilenangaben sind Orientierung, keine Garantie – bei Abweichungen gilt der Code.
 
 ---
@@ -20,7 +21,9 @@ Das Addon läuft **innerhalb von Wealthfolio** (Desktop-App für Portfolio-Track
 und importiert CSV-Transaktionsexporte von Brokern als Wealthfolio-Aktivitäten
 (`BUY`, `SELL`, `DEPOSIT`, `DIVIDEND`, `TRANSFER_IN/OUT`, …). Unterstützt werden
 **Trade Republic (TR)** und **Scalable Capital**; das Format wird automatisch an der
-Kopfzeile der Datei erkannt.
+Kopfzeile der Datei erkannt. Seit 2.10.0 kommen **PDF-Belege** (Kauf, Verkauf,
+Dividende) von Trade Republic, Scalable Capital und **DKB** dazu, beliebig viele eines
+Brokers pro Import (Abschnitt 17).
 
 ```mermaid
 flowchart LR
@@ -71,12 +74,14 @@ bezahlt wird (Kauf), kommt vorher vom Cash-Konto.
 |---|---|---|
 | Sprache | TypeScript 6 (`strict`, `noUnusedLocals/Parameters`) | `tsconfig.json` |
 | UI | React 19 + `@wealthfolio/ui` (shadcn-artige Komponenten) + Tailwind 4 | React/UI kommen **vom Host** |
-| CSV-Parsing | `papaparse` | einzige echte Laufzeit-Abhängigkeit, wird gebündelt |
+| CSV-Parsing | `papaparse` | Laufzeit-Abhängigkeit, wird gebündelt |
+| PDF-Text | `pdfjs-dist` 4.10 (Legacy-Build, Apache-2.0) | seit 2.10.0; die vorminifizierten Dateien werden per Alias in `vite.config.ts` gebündelt (17.2) |
 | Build | Vite 8 (Library-Mode, ES-Modul) | `vite.config.ts` |
 | Tests | Vitest 4 | getestet sind die Transformer (`transform.ts`, `scalable.ts`), `formats.ts` und `common.ts`; die UI nicht |
 | Runtime | Node 24, pnpm 11 | `.tool-versions` |
 
-**Build-Ausgabe:** genau eine Datei `dist/addon.js`. Host-Abhängigkeiten werden in
+**Build-Ausgabe:** genau eine Datei `dist/addon.js` (seit 2.10.0 rund 2,5 MB, davon
+gut 2 MB pdf.js). Host-Abhängigkeiten werden in
 `vite.config.ts` als `external` markiert und **nicht** gebündelt:
 
 ```
@@ -112,6 +117,16 @@ src/
 ├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[] (inkl. Vorlauf planSpecialRows)
 ├── reconcile.ts            Abgleich vor dem Import: Cash-Saldo, Bargeld im Depot, Bestände (6.5)
 ├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, SkippedRow/SkipKind, …)
+├── pdf/                    PDF-Belege (seit 2.10.0, Abschnitt 17)
+│   ├── index.ts            parsePdfFiles(): Dateien → ParseOutcome (wie parseAndTransform für CSV)
+│   ├── text.ts             PDF → Textzeilen mit pdf.js (einzige Stelle mit pdf.js)
+│   ├── parse.ts            Broker am Inhalt erkennen, an den Parser weiterreichen
+│   ├── model.ts            PdfTransaction, Zahlen-/Datumsparser, Prüfungen
+│   ├── tradeRepublic.ts    Parser Trade Republic
+│   ├── scalable.ts         Parser Scalable Capital
+│   ├── dkb.ts              Parser DKB
+│   ├── activities.ts       PdfTransaction → Aktivitäten (Zwei-Konten-Modell)
+│   └── pdf.test.ts         Tests der Parser, der Abbildung und von pdf.js (20 Tests)
 ├── transform.test.ts       Unit- und Fixture-Tests für transform() (73 Tests)
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (33 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
@@ -119,7 +134,8 @@ src/
 ├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (13 Tests)
 └── __fixtures__/
     ├── tr-sample.csv       26 Zeilen, deckt alle unterstützten TR-Typen ab
-    └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
+    ├── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
+    └── pdf/                erfundene Belegtexte im Layout echter Belege (8 Dateien, 17.5)
 ```
 
 ### Abhängigkeitsgraph
@@ -152,13 +168,19 @@ flowchart TD
     IP --> IM[importer.ts]
     IM --> CM
     RC --> CM
+    IP --> PDF[pdf/index.ts]
+    PDF --> PDFTX[pdf/text.ts<br/>pdf.js]
+    PDF --> PDFP[pdf/parse.ts<br/>tradeRepublic, scalable, dkb]
+    PDF --> PDFA[pdf/activities.ts]
+    PDFA --> CM
+    PDF --> FO
 ```
 
 ### Schichten
 
 | Schicht | Dateien | Regeln |
 |---|---|---|
-| **Domänenlogik** | `transform.ts`, `scalable.ts`, `common.ts`, `formats.ts`, `reconcile.ts`, `types.ts` | Rein, synchron, kein React, kein `ctx`. Vollständig unit-testbar. `formats.ts` ist die einzige Stelle, die CSV parst. |
+| **Domänenlogik** | `transform.ts`, `scalable.ts`, `common.ts`, `formats.ts`, `reconcile.ts`, `types.ts`, `pdf/*` | Rein, kein React, kein `ctx`. Vollständig unit-testbar. `formats.ts` ist die einzige Stelle, die CSV parst, `pdf/text.ts` die einzige, die PDFs liest (asynchron). |
 | **Persistenz** | `settings.ts` | Einzige Stelle, die `ctx.api.secrets` nutzt. |
 | **Import-Logik** | `importer.ts` | Kein React; `ctx` nur als übergebene `activities`-API (`create`/`update`). Vollständig unit-testbar (seit 2.8.0, #13 Stufe 1). |
 | **Orchestrierung + UI** | `ImportPage.tsx` | Zustand und Darstellung des Wizards; ruft `parseAndTransform()`, `checkImport`, `reconcile()` und die Funktionen aus `importer.ts`. |
@@ -640,6 +662,8 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
   scalableCashAccountId: string;      // seit 1.4.0: eigenes Kontenpaar für Scalable Capital
   scalableCashCurrency: string;
   scalablePortfolioAccountId: string;
+  dkbCashAccountId: string;           // seit 2.10.0: Kontenpaar für DKB-PDF-Belege
+  dkbPortfolioAccountId: string;
   transferPatterns: TransferPattern[];            // { iban?, keyword?, label, destinationAccountId? }
   securityMappings: Record<string, SecurityMapping>; // ISIN → Ticker | "custom"
 }
@@ -695,7 +719,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 136 Tests in fünf Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts` und `reconcile.ts`.
+- 156 Tests in sechs Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts`, `reconcile.ts` und `pdf/`.
 - **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
@@ -715,6 +739,12 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
   Bestände mit Split/Dividende in Aktien/Wechsel, negative Bestände; Abgleich beider
   Fixtures gegen den Broker-Saldo aus der Datei (TR: Differenz 0; Scalable: −1 € durch
   die absichtlich nicht unterstützte Zeile).
+- **`src/pdf/pdf.test.ts`** (20 Tests, PDF-Belege): Zahlenparser (deutsche und englische
+  Schreibweise, Vorzeichen hinten), je Broker Kauf/Verkauf/Dividende aus den erfundenen
+  Belegtexten in `src/__fixtures__/pdf/`, Abbildung auf Aktivitäten (Gruppen-IDs, Depot ohne
+  Bargeld, Steuererstattung, doppelt hochgeladener Beleg, nicht unterstützter Beleg),
+  Broker-Mischung, pdf.js-Zeilenbildung an einem im Test erzeugten PDF und ein Durchlauf
+  PDF → Aktivitäten auf das DKB-Kontenpaar.
 - **`src/updateCheck.test.ts`** (8 Tests): Versionsvergleich, Auswertung der GitHub-Antwort,
   Cache (frisch/abgelaufen), Verhalten bei blockierter oder fehlerhafter Anfrage – mit
   einem nachgebauten `ctx`.
@@ -827,7 +857,8 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 2. **`transform()` als lange `if`-Kaskade** – für viele neue Typen wäre eine
    Handler-Tabelle `Record<string, (row) => Activity[]>` übersichtlicher.
 3. ~~`ImportPage.tsx` mischt UI und Logik~~ – erledigt in 2.8.0: die Logik liegt in
-   `importer.ts` (#13 Stufe 1). Stufe 2 (gemeinsames Paket für ein PDF-Addon) steht aus.
+   `importer.ts` (#13 Stufe 1). Stufe 2 (gemeinsames Paket für ein eigenes PDF-Addon)
+   entfällt, weil der PDF-Import seit 2.10.0 im selben Addon liegt (17.1).
 4. **Sequenzieller Import**: ein SDK-Aufruf pro Aktivität – langsam bei großen
    Dateien. Fehlschläge werden seit 2.8.0 einzeln angezeigt und lassen sich wiederholen.
 5. **`saveMany` und `assets.create`** sind deklariert, aber ungenutzt.
@@ -855,7 +886,10 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
     `checkImport` sie annimmt. Dasselbe gilt für das Feld `tax` (seit 2.6.0).
 14. ~~Scalable fasste Gebühr und Steuer bei Trades zu `fee` zusammen~~ – erledigt in 2.9.0
     (#26). Dividenden bleiben ohne Steueraufteilung, weil der Export bei Dividenden nur den
-    Nettobetrag liefert.
+    Nettobetrag liefert. Für Brutto und Steuer gibt es seit 2.10.0 den PDF-Beleg (17).
+15. **PDF-Import** (17.6): nur am echten Addon prüfbar ist, ob pdf.js in der Sandbox von
+    Wealthfolio läuft; CSV- und PDF-Aktivitäten erkennen sich nicht gegenseitig als
+    Duplikat; ein DKB-Verkauf ist nur an Beispieltexten geprüft.
 
 ---
 
@@ -1060,6 +1094,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
 | 2.7.0 | Feature | **Abgleich vor dem Import** (#10): Cash-Saldo nach Import im Vergleich zum Broker-Saldo aus der Datei, Warnung bei Bargeld auf dem Portfolio-Konto und negativen Beständen, Reiter „Holdings“. `parseAndTransform` liefert `brokerCash`. | `reconcile.ts`, `formats.ts`, `transform.ts`, `scalable.ts`, `ImportPage.tsx` | 6.2, 6.5 |
 | 2.8.0 | Feature | **Fehlgeschlagene Aktivitäten anzeigen und wiederholen** (#11): Tabelle mit Wealthfolios Fehlermeldung, „Retry N failed“ (behält `sourceGroupId`), CSV zum Kopieren. **Import-Logik in `importer.ts`** ausgelagert (#13 Stufe 1), ohne Verhaltensänderung, mit Tests. | `importer.ts`, `ImportPage.tsx` | 3, 6.2, 6.3, 10, 12.5 |
+| 2.10.0 | Feature | **PDF-Belege** (#15): beliebig viele Kauf-, Verkaufs- und Dividendenbelege eines Brokers (Trade Republic, Scalable Capital, DKB) pro Import; Broker am Inhalt erkannt, Import in das Kontenpaar des Brokers aus den Einstellungen (neu: DKB-Paar). pdf.js im Hauptthread. | `pdf/*`, `formats.ts`, `types.ts`, `settings.ts`, `ImportPage.tsx`, `SettingsPage.tsx`, `vite.config.ts` | 3, 8.1, 17 |
 | 2.9.0 | Änderung (Datenänderung) | **Scalable an 2.6.0 angeglichen** (#26): Kauf/Verkauf mit `fee` = Gebühren und `tax` = Steuern statt beides in `fee`; negative Steuern als `CREDIT`/`TAX_REFUND`. Dividenden unverändert (Export ohne Steuer). **Bereits importierte Scalable-Verkäufe mit Steuer gelten nicht mehr als Duplikat.** | `scalable.ts` | 13 Nr. 14, 14.3 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
@@ -1143,3 +1178,124 @@ Beim Abgleich fielen drei Fehler außerhalb der neuen Typen auf und wurden behob
 | Alle Aktivitäten einer delisteten Aktie (VARTA) scheiterten mit „Could not find … in market data“ | „custom“-Mapping ohne `quoteMode: "MANUAL"` (6.2 Schritt 5) | 2.3.1 |
 | Portfolio-Konto mit USD-/ZAR-Guthaben und EUR-Minus | Dividenden in Fremdwährung gebucht, Steuer und Umbuchung in EUR (5.5 Nr. 10) | 2.4.0 |
 | Stornierte Dividenden als zusätzliche Dividende gebucht | `Math.abs` auf negativen Betrag | 2.4.0 |
+
+---
+
+## 17. PDF-Belege (seit 2.10.0, #15)
+
+Machbarkeit: #14. pdf.js liefert für Trade Republic, Scalable Capital und DKB denselben Text
+wie PDFBox, das Portfolio Performance (PP) nutzt. Gemessen an PPs Testtexten und echten
+Belegen fehlten nur Leerzeichen am Zeilenende (Scalable) und eine Zeilentrennung im
+Adressblock (DKB).
+
+### 17.1 Entscheidungen vor der Umsetzung
+
+| Frage | Entscheidung | Grund |
+|---|---|---|
+| Eigenes Addon (Plan in #15) oder im CSV-Addon? | **im selben Addon** | Addons können ihre Einstellungen nicht gegenseitig lesen. Die Konten sollen sich aus dem CSV-Import ableiten, also dasselbe Kontenpaar und dieselben ISIN-Zuordnungen. Außerdem nutzt der PDF-Import Abgleich, Duplikaterkennung, Retry und Security-Mapping unverändert mit. Preis: `addon.js` wird rund 2 MB größer. |
+| PPs Extraktoren übersetzen? | **nein, eigene Parser** | Je Broker reichen wenige Zeilenmuster für Kauf, Verkauf und Dividende. Eigener Code hält das Addon unter MIT; PP (EPL-1.0) diente nur als Referenz für die Belegaufbauten, es wurde kein Code übernommen. |
+| Testdaten | **erfundene Belegtexte** (`src/__fixtures__/pdf/`) | keine echten Belege, keine PP-Testtexte im Repo. Gegen PPs Testtexte wird nur lokal geprüft (17.5). |
+| Welche Belege? | Kauf, Verkauf (inkl. Sparplan, Round up, Saveback, Kindergeld bei TR; Ausgabe/Rücknahme Investmentfonds bei DKB), Dividende/Ausschüttung | Alles andere (Vorabpauschale, Zinsen, Kontoauszug, Kapitalmaßnahmen, Storno, Anleihen, englische/französische TR-Belege) wird als „Not imported“ mit Grund gelistet. |
+| Kontenpaar | TR und Scalable: das Paar ihres CSV-Imports; **DKB: neues Paar** in den Einstellungen | DKB hat keinen CSV-Import. |
+| Mehrere PDFs | beliebig viele **eines** Brokers pro Upload | Ein Upload geht in genau ein Kontenpaar; bei gemischten Brokern bricht der Upload mit Hinweis ab. |
+
+### 17.2 Ablauf
+
+```mermaid
+flowchart LR
+    F[PDF-Dateien] --> T[pdf/text.ts<br/>pdf.js → Zeilen]
+    T --> P[pdf/parse.ts<br/>Broker erkennen]
+    P --> TR[tradeRepublic.ts]
+    P --> SC[scalable.ts]
+    P --> DK[dkb.ts]
+    TR & SC & DK --> M[PdfTransaction<br/>oder Ablehnung mit Grund]
+    M --> A[pdf/activities.ts<br/>Aktivitäten + skipped]
+    A --> W[ImportPage:<br/>Mapping → checkImport → Review → Import]
+```
+
+- **Text (`text.ts`):** Textelemente werden nach Grundlinie gruppiert (Toleranz 2,5 pt), nach x
+  sortiert und mit einem Leerzeichen verbunden; eine Zeichenkette pro Seite. Der Worker von
+  pdf.js wird mitgebündelt und als `globalThis.pdfjsWorker` registriert. pdf.js nutzt ihn dann
+  im Hauptthread und lädt keine Worker-Datei – die Sandbox kann keine zweite Datei
+  ausliefern. Gebündelt werden die vorminifizierten Legacy-Builds (Alias in
+  `vite.config.ts`); der Lizenzhinweis von pdf.js bleibt in `addon.js` erhalten.
+- **Erkennung (`parse.ts`):** Trade Republic am Banknamen, Scalable an „Scalable Capital
+  (Bank) GmbH“, DKB an der Postleitzahl im Briefkopf („10919 Berlin“), „Deutsche
+  Kreditbank“ oder der BIC `BYLADEM1001`.
+- **Parser:** liefern eine `PdfTransaction` (`model.ts`) oder `{ ok: false, title, reason }`.
+  `validated()` prüft ISIN, Stückzahl und dass Kurswert, Steuern und gebuchter Betrag
+  zusammenpassen.
+- **`parsePdfFiles` (`index.ts`)** liest alle Dateien, bestimmt den Broker (`pdfBroker`),
+  prüft dessen Kontenpaar und gibt ein `ParseOutcome` wie `parseAndTransform` zurück
+  (ohne `brokerCash`). Ab da läuft alles wie beim CSV-Import.
+
+### 17.3 Was aus einem Beleg gelesen wird
+
+| Feld | Trade Republic | Scalable Capital | DKB |
+|---|---|---|---|
+| Art | Überschrift `WERTPAPIERABRECHNUNG …`, `DIVIDENDE`, `(BAR)AUSSCHÜTTUNG`; Kauf/Verkauf aus dem Satz „… Kauf am …“ (auch `BUY`/`SELL`, Sparplan, Round up, Saveback, Kindergeld) | Zeile `Wertpapierabrechnung` + Positionszeile `Kauf …`/`Verkauf …`; `Dividende` | `Wertpapier Abrechnung Kauf/Verkauf/Ausgabe Investmentfonds/Rücknahme Investmentfonds`; `Dividendengutschrift`/`Ausschüttung`/`Ertragsgutschrift` mit Betrag |
+| Zeitpunkt | „am TT.MM.JJJJ, um HH:MM Uhr“ (Berlin → UTC); Dividende: Zahlungsdatum 12:00 | `Ausführung TT.MM.JJJJ HH:MM:SS`; Dividende: Buchungsdatum 12:00 | `Schlusstag/-Zeit`; Dividende: Wertstellung 12:00 |
+| Referenz (`docId`) | `AUSFÜHRUNG xxxx-xxxx` (sonst `AUFTRAG`/`ORDER`) bzw. ISIN + Zahltag | `Geschäft …` bzw. ISIN + Buchungstag | `Auftragsnummer` bzw. `Abrechnungsnr.` |
+| Kurswert / Brutto | `GESAMT` der Übersicht; Dividende in Fremdwährung ÷ Kurs der Zeile „Zwischensumme <Kurs> USD/EUR“ | Betrag der Positionszeile; Dividende: Betrag der `Gutschrift`-Zeile (EUR) | `Kurswert`; Dividende: EUR-Betrag der Ertragszeile |
+| Steuern | Zeilen Kapitalertragsteuer, Soli, Kirchensteuer, Zinssteuer in der ABRECHNUNG (negativ = Belastung) | Zeile `Steuern` | Zeilen Kapitalertragsteuer, Soli, Kirchensteuer (`-` hinten = Belastung) |
+| Gebuchter Betrag | Zeile unter `VERRECHNUNGSKONTO` | `Belastung`/`Gutschrift` (älter: `Total`) | `Ausmachender Betrag` |
+
+**Gebühr** wird nicht einzeln gelesen, sondern als Rest berechnet: Kauf `gebucht − Kurswert − Steuer`,
+Verkauf `Kurswert − gebucht − Steuer` (`tradeFee`). So zählen alle Nebenkosten
+(Provision, Fremdkostenzuschlag, Börsenentgelt, fremde Spesen) mit. Ein negativer Rest heißt,
+der Beleg enthält Beträge, die der Import nicht versteht (z. B. Stückzinsen) – er wird
+abgelehnt. **Dividendensteuer** ist `Brutto − gebucht` und enthält damit auch die
+Quellensteuer.
+
+**Zahlen:** Neuere TR-Belege schreiben auf Seite 1 englisch („140.36“), auf Seite 2 deutsch.
+`parseNum` erkennt das Dezimalzeichen am Zahlbild. Nur bei genau drei Ziffern nach einem
+einzelnen Trenner („1.000“) entscheidet die Schreibweise des gebuchten Betrags des Belegs
+(`decimalOf`).
+
+### 17.4 Abbildung auf Aktivitäten (`activities.ts`)
+
+Wie beim CSV-Import (5.5 Nr. 4, 7, 10); `transferGroupId` = `pdf-tr-|pdf-sc-|pdf-dkb-<docId>`.
+
+| Beleg | Aktivitäten |
+|---|---|
+| Kauf | Cash `TRANSFER_OUT` (−2 s) → Portfolio `TRANSFER_IN` (−1 s) über den gebuchten Betrag; `BUY` mit `unitPrice` = Kurswert ÷ Stück, `fee`, `tax`, `amount = tradeFinalCash(…)` |
+| Verkauf | `SELL` mit `fee`, `tax`, `amount = tradeFinalCash(…)`; Portfolio `TRANSFER_OUT` (+1 s) → Cash `TRANSFER_IN` (+2 s) über den gebuchten Betrag |
+| Dividende | `DIVIDEND` auf dem Portfolio-Konto, `quantity` = Stück, `amount` = gebuchter Betrag, `tax` = Steuern; Umbuchung zum Cash-Konto |
+| Steuererstattung (Steuer < 0) | eigener `CREDIT`/`TAX_REFUND` auf dem Portfolio-Konto (das Feld `tax` kann nicht negativ sein); die Dividende trägt dann den Bruttobetrag |
+
+- **Kommentare** (Teil des Duplikat-Fingerabdrucks): `<Art> <Name> [PDF <docId>]`, bei
+  Fremdwährungsdividenden mit „ - 110 USD @ 1.1“. Derselbe Beleg erzeugt beim erneuten
+  Import dieselben Kommentare und wird als Duplikat erkannt. Diese Wortlaute nicht ändern
+  (5.5 Nr. 8).
+- **Derselbe Beleg zweimal im Upload** (gleiche `docId`): einmal importiert, der zweite steht
+  als `netted` in „Skipped“.
+- **Nicht lesbare oder nicht unterstützte Belege** stehen als `missing` mit Grund und Hinweis
+  in „Skipped“; die übrigen Belege werden trotzdem importiert.
+- **Abgleich (6.5):** Ohne `brokerCash`. Die Kachel zeigt die Cash-Änderung durch die Belege.
+  Verkäufe ohne Kauf in den Belegen werden als Hinweis statt als Fehler gezeigt.
+
+### 17.5 Prüfung
+
+- **Echte Belege** (nur lokal, nicht im Repo): 3 × TR (Kauf, Verkauf, USD-Dividende),
+  3 × Scalable (Kauf, Verkauf, USD-Dividende), 2 × DKB (Kauf, USD-Ausschüttung).
+  Ergebnis: alle 8 erkannt, Werte wie auf dem Beleg, Portfolio-Konto ohne Bargeld.
+- **PPs Testtexte** (lokal, Commit `cf247a7`): von den deutschen Kauf-/Verkaufs-/Sparplan-/
+  Dividendenbelegen werden erkannt: TR 69, Scalable 35, DKB 28. Abgelehnt werden
+  Anleihen, Stornos, Reinvestierung, französische/englische TR-Belege, Zinsgutschriften,
+  Kapitalrückzahlungen und Belege, deren Steuern separat abgerechnet werden.
+- **Tests im Repo:** `src/pdf/pdf.test.ts` mit erfundenen Belegtexten und einem im Test
+  erzeugten PDF.
+
+### 17.6 Offene Punkte
+
+1. **pdf.js in der Wealthfolio-Sandbox** ist nur am echten Addon prüfbar. Der Worker läuft
+   im Hauptthread, eine Worker-Datei wird nicht nachgeladen; ob die Sandbox weitere
+   Browser-Funktionen sperrt, zeigt erst der erste echte Upload.
+2. **CSV und PDF desselben Brokers** erkennen sich nicht als Duplikat (andere Kommentare
+   und Zeitpunkte). Pro Zeitraum eine Quelle nutzen – die Review-Ansicht weist darauf hin.
+3. **DKB-Verkauf** ist nur an PPs Beispieltexten geprüft, nicht an einem echten Beleg.
+4. **TR Saveback:** Der Beleg zeigt eine Belastung des Verrechnungskontos; die
+   Saveback-Gutschrift selbst steht nicht im Beleg.
+5. Neue Belegarten (Vorabpauschale, Zinsen, Kapitalmaßnahmen) und weitere Broker:
+   Parser in `src/pdf/` ergänzen, in `parse.ts` einhängen, erfundenen Belegtext als Fixture
+   und Tests dazu (Rezept wie 12.6).

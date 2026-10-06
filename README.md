@@ -1,8 +1,9 @@
 # Broker Importer
 
 A [Wealthfolio](https://wealthfolio.app) addon that imports **Trade Republic** and
-**Scalable Capital** CSV exports. The format is detected automatically; each broker
-uses its own pair of Wealthfolio accounts (cash + securities), with internal
+**Scalable Capital** CSV exports, and PDF trade and dividend statements from **Trade
+Republic**, **Scalable Capital** and **DKB**. The broker is detected automatically; each
+broker uses its own pair of Wealthfolio accounts (cash + securities), with internal
 transfers between them so balances and spending stay correct.
 
 ## Install and update
@@ -23,7 +24,8 @@ imported activities are not affected.
 ## Setup
 
 In **Broker Import → Settings**, select the cash and securities account for each
-broker you use. Optionally add **transfer patterns** (see below).
+broker you use. PDF statements of Trade Republic and Scalable Capital go into the same
+accounts as their CSV export; DKB has its own pair. Optionally add **transfer patterns** (see below).
 
 ## Import
 
@@ -39,6 +41,25 @@ broker you use. Optionally add **transfer patterns** (see below).
 5. If Wealthfolio rejects some activities, the result page lists them with Wealthfolio's
    reason. Fix the cause (e.g. the security mapping) and press **Retry**, or copy the list
    as CSV and add them manually.
+
+## PDF statements
+
+Drop any number of PDF statements of one broker at once (e.g. all statements of a month).
+Supported are trade statements (buy, sell; Trade Republic also savings plan, round-up,
+Saveback) and dividend/distribution statements:
+
+| Broker | Recognised | Imported as |
+| --- | --- | --- |
+| Trade Republic | Wertpapierabrechnung, Dividende, Ausschüttung (German) | BUY / SELL with fee and tax in their own fields + internal cash transfer; DIVIDEND with gross, withholding and German tax in its tax field + transfer to cash |
+| Scalable Capital | Wertpapierabrechnung (Kauf, Verkauf), Dividende | as above — the dividend statement has the tax that the CSV export lacks |
+| DKB | Wertpapier Abrechnung Kauf / Verkauf (also fund issue and redemption), Dividendengutschrift, Ausschüttung | as above |
+
+Other documents (account statements, Vorabpauschale, interest, corporate actions,
+cancellations, bonds) are listed under **Skipped** with the reason. A statement that is
+uploaded twice is imported once, and importing it again later is recognised as a
+duplicate. Statements hold no deposits or withdrawals, so the cash account shows only
+their effect. **Don't import the same period from the CSV export and from PDFs** — the
+two aren't recognised as duplicates of each other.
 
 ## Supported transactions
 
@@ -91,6 +112,11 @@ Incoming transfers are always deposits.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — local setup, tests, releases
 
 ## Credits
+
+The PDF statement layouts were worked out with the help of the PDF importers and test
+documents of [Portfolio Performance](https://github.com/portfolio-performance/portfolio);
+no code was taken from it. PDFs are read with [pdf.js](https://mozilla.github.io/pdf.js/)
+(Apache-2.0).
 
 This addon is based on the
 [Trade Republic Importer](https://github.com/blastik/trade-republic-importer-addon)

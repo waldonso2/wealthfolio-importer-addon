@@ -1,0 +1,23 @@
+10919 Berlin
+Depotnummer 000000003
+Kundennummer 0000000003
+Erika Mustermann
+Auftragsnummer 123456/78.00
+Frau
+Datum 11.05.2026
+Erika Mustermann
+Rechnungsnummer W00000-0000000000/26
+Musterweg 1
+12345 Musterstadt
+Wertpapier Abrechnung Kauf
+Nominale Wertpapierbezeichnung ISIN (WKN)
+Stück 40 TEST NASDAQ 100 ETF IE00TEST0006 (TEST06)
+REG. SHS 1C USD ACC. ON
+Handels-/Ausführungsplatz Tradegate (Best Execution)
+Schlusstag/-Zeit 11.05.2026 20:58:34 Auftraggeber Erika Mustermann
+Ausführungskurs 50,00 EUR Auftragserteilung/ -ort Online-Banking
+Kurswert 2.000,00- EUR
+Provision 10,00- EUR
+Ausmachender Betrag 2.010,00- EUR
+Den Gegenwert buchen wir mit Valuta 13.05.2026 zu Lasten des Kontos 0000000003
+(IBAN DE00 0000 0000 0000 0000 03), BLZ 12030000 (BIC BYLADEM1001).

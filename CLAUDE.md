@@ -1,6 +1,6 @@
 # Broker Importer Addon
 
-Wealthfolio addon that maps Trade Republic and Scalable Capital CSV exports to Wealthfolio activities. `src/formats.ts` detects the format from the CSV header and dispatches to `src/transform.ts` (Trade Republic) or `src/scalable.ts` (Scalable Capital); shared helpers live in `src/common.ts`. The React pages are thin wrappers: the import logic (security mapping, activity status, create/update payloads, the import run with failure collection and retry) lives in `src/importer.ts`, the pre-import check in `src/reconcile.ts`.
+Wealthfolio addon that maps Trade Republic and Scalable Capital CSV exports, and PDF trade/dividend statements from Trade Republic, Scalable Capital and DKB, to Wealthfolio activities. `src/formats.ts` detects the format from the CSV header and dispatches to `src/transform.ts` (Trade Republic) or `src/scalable.ts` (Scalable Capital); shared helpers live in `src/common.ts`. PDFs go through `src/pdf/` (`parsePdfFiles`: pdf.js text → per-broker parser → activities) and then the same wizard. The React pages are thin wrappers: the import logic (security mapping, activity status, create/update payloads, the import run with failure collection and retry) lives in `src/importer.ts`, the pre-import check in `src/reconcile.ts`.
 
 ## Quick Start (Claude Code Contributors)
 
@@ -18,7 +18,8 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 
 - **Runtime / package manager**: Node 24, pnpm 11 (versions pinned in `.tool-versions`)
 - **Build**: Vite 8 — outputs a single `dist/addon.js` (ES module, no zip)
-- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic), `src/scalable.test.ts` (Scalable Capital, format detection, `tradeFinalCash`) `src/reconcile.test.ts` (pre-import reconciliation), `src/importer.test.ts` (import logic with a faked activities API) and `src/updateCheck.test.ts` (update check) + CSV fixtures in `src/__fixtures__/`
+- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic), `src/scalable.test.ts` (Scalable Capital, format detection, `tradeFinalCash`) `src/reconcile.test.ts` (pre-import reconciliation), `src/importer.test.ts` (import logic with a faked activities API), `src/pdf/pdf.test.ts` (PDF parsers, mapping, pdf.js on a generated PDF) and `src/updateCheck.test.ts` (update check) + CSV fixtures in `src/__fixtures__/`, fabricated statement texts in `src/__fixtures__/pdf/`
+- **PDF**: `pdfjs-dist` 4.10 legacy build, worker bundled and run on the main thread (`src/pdf/text.ts`); `vite.config.ts` aliases the pre-minified files
 - **Type checking**: `tsc --noEmit`
 
 ## Key files
@@ -36,6 +37,7 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 | `src/reconcile.ts` / `src/reconcile.test.ts` | Pre-import check shown in the review step: cash balance vs. the broker's balance from the file (`trBrokerCash` / `scalableBrokerCash`), cash left on the securities account, holdings. `cashEffect()` mirrors Wealthfolio's cash rules — extend it with every new activity type or subtype |
 | `src/__fixtures__/tr-sample.csv` | 26-row fixture covering every supported Trade Republic transaction type |
 | `src/__fixtures__/scalable-sample.csv` | 26-row fabricated Scalable fixture (BOM, CRLF, `;`, decimal comma) covering every supported Scalable type |
+| `src/pdf/` | PDF statements: `text.ts` (pdf.js → lines), `parse.ts` (broker detection), `tradeRepublic.ts` / `scalable.ts` / `dkb.ts` (parsers → `PdfTransaction` or a reason), `activities.ts` (two-account mapping, same rules as the CSV transformers), `index.ts` (`parsePdfFiles`). Never put real statements into fixtures — fabricate them in the real layout |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
 | `src/addon.tsx` | Entry point — registers pages and sidebar item via addon-sdk |
 | `src/updateCheck.ts` / `src/UpdateBanner.tsx` | Daily GitHub release check (`ctx.api.network`, host `api.github.com`) and the update hint shown above both pages; the sandboxed iframe can't open external links, so the URL is shown for copying |
@@ -75,7 +77,7 @@ Buying a stock moves funds Cash → Portfolio (TRANSFER_OUT / TRANSFER_IN pair) 
 
 The portfolio account must end up holding no cash: every cash-moving activity there (dividend, tax, buy, sell) is in the cash currency and fully swept to/from the cash account. Wealthfolio keeps cash per currency, so a DIVIDEND booked in USD next to an EUR tax and EUR sweep leaves USD cash and an EUR deficit behind — foreign dividends are booked in the payout currency, with the original amount only in the comment.
 
-Scalable Capital uses the same model with its **own** account pair (`scalableCashAccountId` / `scalablePortfolioAccountId` in `AddonSettings`), so users of both brokers never mix them. Every internal pair in `scalable.ts` follows the same `transferGroupId` rule below, with `sc-`-prefixed IDs.
+Scalable Capital uses the same model with its **own** account pair (`scalableCashAccountId` / `scalablePortfolioAccountId` in `AddonSettings`), so users of both brokers never mix them. PDF statements import into the pair of their broker (`formatAccounts`); DKB, which has no CSV import, has its own pair (`dkbCashAccountId` / `dkbPortfolioAccountId`). PDF activities use `pdf-tr-`/`pdf-sc-`/`pdf-dkb-` group IDs and comments ending in `[PDF <docId>]` — part of the duplicate fingerprint, so don't reword them. Every internal pair in `scalable.ts` follows the same `transferGroupId` rule below, with `sc-`-prefixed IDs.
 
 ## Internal transfers and spending
 

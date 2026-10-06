@@ -1,0 +1,19 @@
+10919 Berlin Seite 1
+Depotnummer 000000003
+Kundennummer 0000000003
+Erika Mustermann
+Abrechnungsnr. 99999999901
+Frau
+Datum 19.08.2026
+Ausschüttung Investmentfonds
+Nominale Wertpapierbezeichnung ISIN (WKN)
+Stück 50 TEST MSCI WORLD SRI IE00TEST0007 (TEST07)
+NAMENS-ANTEILE (USD) A-DIS O.N
+Zahlbarkeitstag 18.08.2026 Ausschüttung pro St. 1,100000000 USD
+Devisenkurs EUR / USD 1,1000
+Ausschüttung 55,00 USD 50,00+ EUR
+Kapitalertragsteuer 25 % auf 35,00 EUR 8,75- EUR
+Solidaritätszuschlag 5,5 % auf 8,75 EUR 0,48- EUR
+Ausmachender Betrag 40,77+ EUR
+Den Betrag buchen wir mit Wertstellung 19.08.2026 zu Gunsten des Kontos 0000000003 (IBAN DE00 0000 0000 0000
+0000 03), BLZ 120 300 00 (BIC BYLADEM1001).
