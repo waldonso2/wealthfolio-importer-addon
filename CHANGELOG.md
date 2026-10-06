@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.8.0] - 2026-10-06
+
+### Added
+
+- Activities that Wealthfolio rejects during the import are no longer just counted. The result page lists each one with its date, account, type, symbol, amount and Wealthfolio's error message.
+- **Retry N failed** re-sends only those activities. Internal transfer pairs keep their link, so a retried leg still pairs with its counterpart.
+- **Copy as CSV** shows the list as text to copy, because downloads aren't possible in the addon sandbox.
+
+### Changed
+
+- The import logic (security mapping, activity status, create/update payloads, the import run) moved from the import page into its own module with unit tests. The import behaves as before.
+
 ## [2.7.0] - 2026-10-06
 
 ### Added

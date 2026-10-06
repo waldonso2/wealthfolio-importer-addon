@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.7.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.8.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -102,7 +102,8 @@ src/
 ├── formats.ts              Formaterkennung (Kopfzeile) + Parsen + Weiterleitung an den Transformer
 ├── common.ts               Gemeinsame Helfer beider Transformer (makeCashAct, matchPattern, …)
 ├── scalable.ts             Scalable Capital: ScRow[] → ActivityImportEx[] (Abschnitt 14)
-├── ImportPage.tsx          Import-Wizard (Zustandsautomat, SDK-Aufrufe, Import-Schleife, Tabelle der übersprungenen Zeilen)
+├── ImportPage.tsx          Import-Wizard: Zustand und Darstellung (Schritte, Tabellen, Abgleich, Ergebnis)
+├── importer.ts             Import-Logik ohne React: Mapping, Status, Payloads, Import-Lauf, Fehler (seit 2.8.0)
 ├── UpdateBanner.tsx        Hinweis auf neue Version (über Import und Settings)
 ├── updateCheck.ts          Prüft GitHub-Releases auf eine neuere Version (4.2)
 ├── SecurityMappingStep.tsx UI-Schritt: ISIN → Ticker zuordnen
@@ -115,6 +116,7 @@ src/
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 ├── reconcile.test.ts       Tests für den Abgleich, inkl. beider Fixtures (9 Tests)
+├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (13 Tests)
 └── __fixtures__/
     ├── tr-sample.csv       26 Zeilen, deckt alle unterstützten TR-Typen ab
     └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
@@ -147,6 +149,8 @@ flowchart TD
     TEST2 --> FO
     TEST2 --> FIX2[__fixtures__/scalable-sample.csv]
     IP --> RC[reconcile.ts]
+    IP --> IM[importer.ts]
+    IM --> CM
     RC --> CM
 ```
 
@@ -156,7 +160,8 @@ flowchart TD
 |---|---|---|
 | **Domänenlogik** | `transform.ts`, `scalable.ts`, `common.ts`, `formats.ts`, `reconcile.ts`, `types.ts` | Rein, synchron, kein React, kein `ctx`. Vollständig unit-testbar. `formats.ts` ist die einzige Stelle, die CSV parst. |
 | **Persistenz** | `settings.ts` | Einzige Stelle, die `ctx.api.secrets` nutzt. |
-| **Orchestrierung + UI** | `ImportPage.tsx` | Ruft `parseAndTransform()`, SDK-APIs, steuert den Wizard. Enthält noch Logik (Mapping-Anwendung, Import-Schleife). |
+| **Import-Logik** | `importer.ts` | Kein React; `ctx` nur als übergebene `activities`-API (`create`/`update`). Vollständig unit-testbar (seit 2.8.0, #13 Stufe 1). |
+| **Orchestrierung + UI** | `ImportPage.tsx` | Zustand und Darstellung des Wizards; ruft `parseAndTransform()`, `checkImport`, `reconcile()` und die Funktionen aus `importer.ts`. |
 | **Update-Hinweis** | `updateCheck.ts`, `UpdateBanner.tsx` | Einzige Stelle mit Netzwerkzugriff (`ctx.api.network`) und Addon-Speicher (`ctx.api.storage`), siehe 4.2. |
 | **Reine UI** | `SecurityMappingStep.tsx`, `SettingsPage.tsx` | Formulare / Darstellung; Mapping-Step ist zustandslos bzgl. Persistenz (Callbacks). |
 | **Bootstrap** | `addon.tsx` | Registrierung beim Host; keine Fachlogik. |
@@ -485,7 +490,7 @@ sequenceDiagram
    **jüngste** Name aus der Datei verwendet (seit 2.0.1).
 4. **Vorbefüllung** aus `settings.securityMappings`. Sind *alle* ISINs bekannt, wird
    `SecurityMappingStep` übersprungen.
-5. **`applySecurityMappings`**: ersetzt ISIN durch Ticker-Daten aus `SymbolSearchResult`
+5. **`applySecurityMappings`** (`importer.ts`): ersetzt ISIN durch Ticker-Daten aus `SymbolSearchResult`
    (`symbol`, `exchangeMic`, `quoteCcy`, `instrumentType`, `providerId`, `assetId`, …).
    `"custom"` lässt die ISIN als Symbol stehen. Ist die ISIN eine Aktie (irgendeine Zeile
    dieser ISIN hat `instrumentType: "EQUITY"`), bekommen alle ihre Zeilen
@@ -512,21 +517,29 @@ sequenceDiagram
    Darüber steht seit 2.7.0 der **Abgleich** (6.5) mit Cash-Saldo, Bargeld auf dem
    Portfolio-Konto und Anzahl der Positionen; der Reiter **„Holdings“** listet die
    Bestände.
-8. **Import (`handleImport`)**: sequenziell, eine Aktivität pro SDK-Aufruf:
-   - Duplikat → `ctx.api.activities.update({ id: duplicateOfId, … })`
-   - sonst → `ctx.api.activities.create({ … })`
-   - `asset`-Objekt wird aus den Symbolfeldern gebaut (Host legt Assets bei Bedarf an).
-   - `fee` und `tax` werden getrennt übergeben (`tax` seit 2.6.0; vorher schickte
-     `handleImport` das Feld nicht mit).
-   - Fehler einzelner Aufrufe werden gezählt (`skippedCount`), nicht abgebrochen.
+8. **Import (`handleImport` → `importer.ts`)**: `selectCandidates()` wählt die
+   Aktivitäten (ohne Fehler, ohne vom Nutzer ausgeschlossene Duplikate), `runImport()`
+   sendet sie sequenziell, eine Aktivität pro SDK-Aufruf:
+   - `buildPayload()`: Duplikat → `activities.update({ id: duplicateOfId, … })`, sonst
+     `activities.create({ … })`; `asset`-Objekt aus den Symbolfeldern (Host legt Assets
+     bei Bedarf an), `fee` und `tax` getrennt (`tax` seit 2.6.0), `sourceGroupId` (6.3).
+   - Ein fehlgeschlagener Aufruf bricht den Lauf nicht ab; er wird mit Wealthfolios
+     Fehlermeldung als `FailedActivity` gesammelt (seit 2.8.0, vorher nur gezählt).
    - Danach `portfolio.update()` + `query.invalidateQueries([])` (Fehler hier sind unkritisch).
-   - Ergebnis wird als synthetisches `ImportActivitiesResult` angezeigt.
+9. **Ergebnis („done“)**: Kacheln Total / Imported / Manually skipped / Failed. Gibt es
+   Fehlschläge, zeigt eine Tabelle Datum, Konto, Typ, Symbol, Betrag und die Meldung von
+   Wealthfolio; **„Retry N failed“** schickt nur diese Aktivitäten noch einmal durch
+   `runImport()` – mit der gespeicherten `lineNumber → transferGroupId`-Zuordnung, damit
+   Transferpaare ihre `sourceGroupId` behalten. „Copy as CSV“ zeigt die Liste als Text
+   zum Kopieren (`failedAsCsv`; Downloads gehen in der Sandbox nicht).
 
 ### 6.3 `transferGroupId` → `sourceGroupId` (wichtigster Fallstrick)
 
 - `ActivityImport` kennt kein `sourceGroupId`; `checkImport` **verwirft unbekannte Felder**.
-- Daher wird vor dem Import eine Map `lineNumber → transferGroupId` aus dem
-  **ursprünglichen** `parseResult.activities` gebaut (`lineNumber` überlebt `checkImport`).
+- Daher baut `groupIdsByLine()` (`importer.ts`) vor dem Import eine Map
+  `lineNumber → transferGroupId` aus dem **ursprünglichen** `parseResult.activities`
+  (`lineNumber` überlebt `checkImport`). Die Map bleibt im Ergebnis gespeichert, damit ein
+  „Retry“ dieselben `sourceGroupId`s setzt.
 - Beim `create`/`update` wird daraus `sourceGroupId` gesetzt.
 - Weil das Addon Aktivitäten einzeln anlegt (nicht über die Bulk-Import-Pipeline),
   läuft Wealthfolios automatische Transfer-Verknüpfung nie – die explizite
@@ -682,7 +695,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 121 Tests in vier Dateien; die UI (`*.tsx`) ist nicht getestet.
+- 134 Tests in fünf Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts` und `reconcile.ts`.
 - **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
@@ -693,6 +706,11 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
   Formaterkennung, `tradeFinalCash`, Fixture-Test mit
   `src/__fixtures__/scalable-sample.csv` (26 Zeilen → 33 Aktivitäten + 9 skipped,
   Endbestände). Die Tests laufen unabhängig von der Zeitzone des Rechners.
+- **`src/importer.test.ts`** (13 Tests, mit nachgebauter `activities`-API):
+  `activityStatus`, `applySecurityMappings` (Ticker, „custom“ → MANUAL je ISIN),
+  `selectCandidates`, `groupIdsByLine`, `buildPayload` (create/update, `tax`,
+  `quoteMode`, `sourceGroupId`), `runImport` (Fortschritt, Fehlersammlung, Retry nur der
+  Fehlschläge mit `sourceGroupId`), `failedAsCsv`.
 - **`src/reconcile.test.ts`** (9 Tests): `cashEffect`, Cash-Saldo, Bargeld im Depot,
   Bestände mit Split/Dividende in Aktien/Wechsel, negative Bestände; Abgleich beider
   Fixtures gegen den Broker-Saldo aus der Datei (TR: Differenz 0; Scalable: −1 € durch
@@ -769,8 +787,9 @@ keine Release-Notes.
 
 ### 12.5 Import-Verhalten ändern (Duplikate, Batch, Fortschritt)
 
-- Alles in `ImportPage.handleImport`. Die `lineNumber → transferGroupId`-Zuordnung
-  (6.3) muss erhalten bleiben.
+- Logik in `importer.ts` (`selectCandidates`, `buildPayload`, `runImport`) ändern und in
+  `importer.test.ts` absichern; `ImportPage.handleImport` ruft sie nur auf. Die
+  `lineNumber → transferGroupId`-Zuordnung (6.3) muss erhalten bleiben.
 - Ein Umstieg auf `activities.saveMany` / Bulk-Import würde Wealthfolios eigenen
   Transfer-Linker aktivieren – dann `sourceGroupId`-Logik neu bewerten.
 - Duplikaterkennung hängt am Fingerabdruck aus 6.4 – Felder, die in ihn eingehen,
@@ -807,14 +826,13 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
    (mit/ohne `cpname`) beachten.
 2. **`transform()` als lange `if`-Kaskade** – für viele neue Typen wäre eine
    Handler-Tabelle `Record<string, (row) => Activity[]>` übersichtlicher.
-3. **`ImportPage.tsx` (~900 Zeilen)** mischt UI und Logik; `applySecurityMappings`,
-   `activityStatus` und der Payload-Bau in `handleImport` ließen sich in ein
-   testbares Modul (z. B. `importer.ts`) auslagern.
+3. ~~`ImportPage.tsx` mischt UI und Logik~~ – erledigt in 2.8.0: die Logik liegt in
+   `importer.ts` (#13 Stufe 1). Stufe 2 (gemeinsames Paket für ein PDF-Addon) steht aus.
 4. **Sequenzieller Import**: ein SDK-Aufruf pro Aktivität – langsam bei großen
-   Dateien; Fehler pro Aktivität werden nur gezählt, nicht angezeigt (Backlog #11).
+   Dateien. Fehlschläge werden seit 2.8.0 einzeln angezeigt und lassen sich wiederholen.
 5. **`saveMany` und `assets.create`** sind deklariert, aber ungenutzt.
-6. **Keine UI-Tests**; abgesichert sind nur die Transformer, `formats.ts` und
-   `tradeFinalCash`. Insbesondere die Zusammenarbeit mit Wealthfolio (`checkImport`,
+6. **Keine Komponententests**; abgesichert sind Transformer, `formats.ts`, `common.ts`,
+   `reconcile.ts` und `importer.ts`. Insbesondere die Zusammenarbeit mit Wealthfolio (`checkImport`,
    Anlegen von Aktivitäten) ist nur am echten Addon prüfbar.
 7. **STOCKPERK-Zuordnung** ist O(n·m) und matcht nur über Symbol/Datum/Betrag –
    bei zwei identischen Käufen am selben Tag gewinnt der erste.
@@ -1041,6 +1059,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.5.0 | Feature | TR-Kapitalmaßnahmen Stufe 3: `SPLIT` als Wealthfolio-`SPLIT` (Verhältnis aus dem Bestand der Datei), `STOCK_DIVIDEND` als `DIVIDEND`/`DIVIDEND_IN_KIND` (+n/−n-Umbuchung verrechnet), `DIVIDEND_REINVESTMENT` mit seiner negativen Dividendenzeile als vom Cash-Konto finanzierter `BUY`. Übersprungene Zeilen tragen `kind` (`netted`/`missing`) und `hint`; die UI zeigt Status und Hinweis. Vorlauf `mapCorporateActions` + `dividendCorrections` → `planSpecialRows`. | `transform.ts`, `scalable.ts`, `types.ts`, `ImportPage.tsx` | 5.4, 5.5 Nr. 6, 16.3 |
 | 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
 | 2.7.0 | Feature | **Abgleich vor dem Import** (#10): Cash-Saldo nach Import im Vergleich zum Broker-Saldo aus der Datei, Warnung bei Bargeld auf dem Portfolio-Konto und negativen Beständen, Reiter „Holdings“. `parseAndTransform` liefert `brokerCash`. | `reconcile.ts`, `formats.ts`, `transform.ts`, `scalable.ts`, `ImportPage.tsx` | 6.2, 6.5 |
+| 2.8.0 | Feature | **Fehlgeschlagene Aktivitäten anzeigen und wiederholen** (#11): Tabelle mit Wealthfolios Fehlermeldung, „Retry N failed“ (behält `sourceGroupId`), CSV zum Kopieren. **Import-Logik in `importer.ts`** ausgelagert (#13 Stufe 1), ohne Verhaltensänderung, mit Tests. | `importer.ts`, `ImportPage.tsx` | 3, 6.2, 6.3, 10, 12.5 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).
