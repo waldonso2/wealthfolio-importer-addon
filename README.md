@@ -36,6 +36,9 @@ broker you use. Optionally add **transfer patterns** (see below).
    list, a check shows the cash balance after the import next to the broker's balance from
    the file, warns about cash left on the securities account or negative holdings, and the
    **Holdings** tab lists the resulting positions — compare them with your broker app.
+5. If Wealthfolio rejects some activities, the result page lists them with Wealthfolio's
+   reason. Fix the cause (e.g. the security mapping) and press **Retry**, or copy the list
+   as CSV and add them manually.
 
 ## Supported transactions
 
