@@ -329,6 +329,12 @@ function planSpecialRows(rows: TrRow[], config: AddonSettings): Map<string, Plan
   return plan;
 }
 
+// Trade Republic's own cash balance as the export shows it: every row's cash
+// effect is amount + fee + tax (all signed). Used to check the import (#10).
+export function trBrokerCash(rows: TrRow[]): number {
+  return rows.reduce((sum, r) => sum + num(r.amount) + num(r.fee) + num(r.tax), 0);
+}
+
 export function transform(rows: TrRow[], config: AddonSettings): TransformResult {
   const { cashAccountId, portfolioAccountId, transferPatterns } = config;
   const cashCurrency = config.cashCurrency || "EUR";

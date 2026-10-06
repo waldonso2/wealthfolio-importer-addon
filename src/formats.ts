@@ -1,6 +1,6 @@
 import Papa from "papaparse";
-import { transformScalable } from "./scalable";
-import { transform } from "./transform";
+import { scalableBrokerCash, transformScalable } from "./scalable";
+import { transform, trBrokerCash } from "./transform";
 import type { AddonSettings, ScRow, TransformResult, TrRow } from "./types";
 
 // Supported CSV exports. The format is detected from the header line, so the
@@ -39,7 +39,9 @@ export function isFormatConfigured(format: ImportFormat, settings: AddonSettings
 }
 
 export type ParseOutcome =
-  | { ok: true; format: ImportFormat; result: TransformResult }
+  // brokerCash: the broker's own cash balance computed from the export, to
+  // compare against the imported cash account (reconcile.ts).
+  | { ok: true; format: ImportFormat; result: TransformResult; brokerCash: { currency: string; amount: number } }
   | { ok: false; error: string };
 
 export function parseAndTransform(text: string, settings: AddonSettings): ParseOutcome {
@@ -61,9 +63,19 @@ export function parseAndTransform(text: string, settings: AddonSettings): ParseO
   if (format === "scalable") {
     const parsed = Papa.parse<ScRow>(body, { header: true, delimiter: ";", skipEmptyLines: true });
     if (parsed.data.length === 0) return { ok: false, error: "No rows found in the Scalable Capital export." };
-    return { ok: true, format, result: transformScalable(parsed.data, settings) };
+    return {
+      ok: true,
+      format,
+      result: transformScalable(parsed.data, settings),
+      brokerCash: { currency: settings.scalableCashCurrency || "EUR", amount: scalableBrokerCash(parsed.data) },
+    };
   }
   const parsed = Papa.parse<TrRow>(body, { header: true, skipEmptyLines: true });
   if (parsed.data.length === 0) return { ok: false, error: "No rows found in the Trade Republic export." };
-  return { ok: true, format, result: transform(parsed.data, settings) };
+  return {
+    ok: true,
+    format,
+    result: transform(parsed.data, settings),
+    brokerCash: { currency: settings.cashCurrency || "EUR", amount: trBrokerCash(parsed.data) },
+  };
 }
