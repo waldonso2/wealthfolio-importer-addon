@@ -28,14 +28,17 @@ import {
   applySecurityMappings,
   failedAsCsv,
   firstError,
+  accountsToMatch,
   groupIdsByLine,
+  importButtonLabel,
+  matchExisting,
   runImport,
   selectCandidates,
   type FailedActivity,
 } from "./importer";
 import { parsePdfFiles } from "./pdf";
 import { cashDifference, reconcile, type Reconciliation } from "./reconcile";
-import type { AddonSettings, SkippedRow, TransformResult } from "./types";
+import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult } from "./types";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -158,6 +161,8 @@ function SkippedTable({ rows }: { rows: SkippedRow[] }) {
 interface ImportOutcome {
   total: number;
   imported: number;
+  // Of `imported`: existing activities that were updated.
+  updated: number;
   userSkipped: number;
   failed: FailedActivity[];
   // Kept so a retry sends the failed activities with their sourceGroupId.
@@ -269,7 +274,7 @@ function ReconcileSummary({
           ))}
         <p className="text-muted-foreground text-xs">
           {fromPdf
-            ? `Computed from these statements only. They hold trades and dividends but no deposits or withdrawals, so the cash account doesn't show your ${broker} balance. Don't import the same period from the CSV export as well - CSV and PDF activities aren't recognised as duplicates of each other.`
+            ? `Computed from these statements only. They hold trades and dividends but no deposits or withdrawals, so the cash account doesn't show your ${broker} balance.`
             : `Computed from this file only. Compare with your ${broker} app; if the file doesn't cover the full history, the balance and holdings differ.`}
         </p>
       </CardContent>
@@ -313,14 +318,29 @@ function ActivityRow({
   activity,
   accountName,
   included,
+  existing,
   onToggleInclude,
 }: {
   activity: ActivityImport;
   accountName: (id: string) => string;
   included: boolean;
+  // Already in Wealthfolio from another source (matchExisting).
+  existing: boolean;
   onToggleInclude: () => void;
 }) {
   const status = activityStatus(activity);
+  const toggle = (
+    <button
+      onClick={onToggleInclude}
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+        included
+          ? "text-muted-foreground hover:text-foreground"
+          : "bg-primary text-primary-foreground hover:bg-primary/90"
+      }`}
+    >
+      {included ? "Skip" : "Include"}
+    </button>
+  );
   return (
     <tr className="border-border/50 hover:bg-muted/30 border-b">
       <td className="whitespace-nowrap px-2 py-1.5 font-mono text-xs">
@@ -337,22 +357,24 @@ function ActivityRow({
         {displayAmount(activity)}
       </td>
       <td className="px-2 py-1.5 text-xs">
-        {status === "valid" && <span className="text-muted-foreground text-[10px]">Ready</span>}
+        {status === "valid" && !existing && <span className="text-muted-foreground text-[10px]">Ready</span>}
+        {status === "valid" && existing && (
+          <div className="flex items-center gap-1.5">
+            <span
+              className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
+              title="The same transaction is already in Wealthfolio, imported from another source (e.g. CSV vs. PDF)"
+            >
+              In Wealthfolio
+            </span>
+            {toggle}
+          </div>
+        )}
         {status === "duplicate" && (
           <div className="flex items-center gap-1.5">
             <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
               Duplicate
             </span>
-            <button
-              onClick={onToggleInclude}
-              className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                included
-                  ? "text-muted-foreground hover:text-foreground"
-                  : "bg-primary text-primary-foreground hover:bg-primary/90"
-              }`}
-            >
-              {included ? "Skip" : "Include"}
-            </button>
+            {toggle}
           </div>
         )}
         {status === "error" && (
@@ -384,6 +406,10 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   const [mappings, setMappings] = useState<Map<string, SecurityMapping>>(new Map());
   const [checked, setChecked] = useState<ActivityImport[] | null>(null);
   const [excludedLines, setExcludedLines] = useState<Set<number>>(new Set());
+  // Lines already in Wealthfolio from another source (e.g. CSV vs. PDF), each
+  // mapped to all lines of its transaction; skipped unless the user includes them.
+  const [existingMatches, setExistingMatches] = useState<Map<number, number[]>>(new Map());
+  const [matchError, setMatchError] = useState("");
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
 
   const [fileError, setFileError] = useState("");
@@ -416,17 +442,32 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   // ── Apply symbol mappings and run checkImport ─────────────────────────────
 
   const runCheckImport = useCallback(
-    async (activities: ActivityImport[]) => {
+    async (activities: ActivityImportEx[]) => {
       setStep("checking");
+      let validated: ActivityImport[];
       try {
-        const validated = await ctx.api.activities.checkImport(activities);
-        setChecked(validated);
-        setStep("confirm");
+        validated = await ctx.api.activities.checkImport(activities);
+        setCheckError("");
       } catch (e) {
         setCheckError(String(e));
-        setChecked(activities);
-        setStep("confirm");
+        validated = activities;
       }
+      // Trades and dividends already imported from another source (CSV vs. PDF)
+      // aren't duplicates for checkImport; find them in the existing activities.
+      let matches = new Map<number, number[]>();
+      setMatchError("");
+      try {
+        const existing = (
+          await Promise.all(accountsToMatch(validated).map((id) => ctx.api.activities.getAll(id)))
+        ).flat();
+        matches = matchExisting(validated, existing, groupIdsByLine(activities));
+      } catch (e) {
+        setMatchError(String(e));
+      }
+      setExistingMatches(matches);
+      setExcludedLines(new Set(matches.keys()));
+      setChecked(validated);
+      setStep("confirm");
     },
     [ctx],
   );
@@ -555,18 +596,23 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     });
   }, []);
 
+  // Skips or includes several lines together (a transaction and its legs).
+  const toggleLines = useCallback((lines: number[]) => {
+    setExcludedLines((prev) => {
+      const next = new Set(prev);
+      const allExcluded = lines.every((ln) => next.has(ln));
+      for (const ln of lines) {
+        if (allExcluded) next.delete(ln);
+        else next.add(ln);
+      }
+      return next;
+    });
+  }, []);
+
   const toggleAllDuplicates = useCallback(
-    (duplicates: ActivityImport[]) => {
-      const lines = duplicates
-        .filter((a) => a.lineNumber != null)
-        .map((a) => a.lineNumber as number);
-      const allExcluded = lines.every((ln) => excludedLines.has(ln));
-      setExcludedLines(() => {
-        if (allExcluded) return new Set<number>();
-        return new Set(lines);
-      });
-    },
-    [excludedLines],
+    (duplicates: ActivityImport[]) =>
+      toggleLines(duplicates.filter((a) => a.lineNumber != null).map((a) => a.lineNumber as number)),
+    [toggleLines],
   );
 
   // ── Import ────────────────────────────────────────────────────────────────
@@ -595,6 +641,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       setImportResult({
         total: candidates.length + userSkipped,
         imported: run.imported,
+        updated: run.updated,
         userSkipped,
         failed: run.failed,
         groupIdByLine,
@@ -617,7 +664,12 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         importResult.failed.map((f) => f.activity),
         importResult.groupIdByLine,
       );
-      setImportResult({ ...importResult, imported: importResult.imported + run.imported, failed: run.failed });
+      setImportResult({
+        ...importResult,
+        imported: importResult.imported + run.imported,
+        updated: importResult.updated + run.updated,
+        failed: run.failed,
+      });
       if (run.imported > 0) await refreshPortfolio();
     } finally {
       setRetrying(false);
@@ -637,6 +689,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     setMappings(new Map());
     setChecked(null);
     setExcludedLines(new Set());
+    setExistingMatches(new Map());
     setShowDuplicatesOnly(false);
     setFileError("");
     setCheckError("");
@@ -760,13 +813,17 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   // ── Confirm ───────────────────────────────────────────────────────────────
 
   if (step === "confirm" && checked) {
+    const isExcluded = (a: ActivityImport) => a.lineNumber != null && excludedLines.has(a.lineNumber);
+    const isExisting = (a: ActivityImport) => a.lineNumber != null && existingMatches.has(a.lineNumber);
     const valid = checked.filter((a) => activityStatus(a) === "valid");
     const duplicates = checked.filter((a) => activityStatus(a) === "duplicate");
     const errors = checked.filter((a) => activityStatus(a) === "error");
-    const userExcludedCount = duplicates.filter(
-      (a) => a.lineNumber != null && excludedLines.has(a.lineNumber),
-    ).length;
-    const toImportCount = valid.length + duplicates.length - userExcludedCount;
+    const existingLines = [...existingMatches.keys()];
+    // Transactions (not activities) already in Wealthfolio: one per group.
+    const existingCount = new Set(existingMatches.values()).size;
+    const toNewCount = valid.filter((a) => !isExcluded(a)).length;
+    const toUpdateCount = duplicates.filter((a) => !isExcluded(a)).length;
+    const toImportCount = toNewCount + toUpdateCount;
     const unsupported = parseResult?.skipped ?? [];
     const notImported = unsupported.filter((r) => r.kind !== "netted").length;
     const nettedOut = unsupported.length - notImported;
@@ -788,10 +845,18 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           <div>
             <h1 className="text-2xl font-semibold">Review activities</h1>
             <p className="text-muted-foreground mt-0.5 text-sm">
-              {valid.length} ready · {duplicates.length} duplicates · {errors.length} errors
+              {valid.filter((a) => !isExisting(a)).length} ready
+              {existingCount > 0 && ` · ${existingCount} already in Wealthfolio`} · {duplicates.length} duplicates ·{" "}
+              {errors.length} errors
               {notImported > 0 && ` · ${notImported} not imported`}
               {nettedOut > 0 && ` · ${nettedOut} netted out`}
             </p>
+            {matchError && (
+              <p className="text-destructive mt-1 text-xs">
+                Could not compare with the activities already in Wealthfolio: {matchError} — check for
+                double entries yourself.
+              </p>
+            )}
             {checkError && (
               <p className="text-destructive mt-1 text-xs">
                 Validation warning: {checkError} — review manually.
@@ -806,13 +871,32 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
               Back
             </Button>
             <Button onClick={handleImport} disabled={toImportCount === 0}>
-              Import {toImportCount} activities
+              {importButtonLabel(toNewCount, toUpdateCount)}
             </Button>
           </div>
         </div>
 
         {rec && format && (
           <ReconcileSummary rec={rec} broker={FORMAT_LABEL[format]} notImported={notImported} fromPdf={fromPdf} />
+        )}
+
+        {/* Already in Wealthfolio from another source */}
+        {existingCount > 0 && (
+          <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm dark:bg-blue-900/20">
+            <span>
+              <span className="font-medium">
+                {existingCount} transaction{existingCount !== 1 ? "s" : ""}
+              </span>{" "}
+              already in Wealthfolio from another import (e.g. CSV instead of PDF) — <strong>skipped</strong>{" "}
+              unless included.
+            </span>
+            <button
+              onClick={() => toggleLines(existingLines)}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 ml-4 shrink-0 rounded px-2 py-1 text-xs font-medium transition-colors"
+            >
+              {existingLines.every((ln) => excludedLines.has(ln)) ? "Include all" : "Skip all"}
+            </button>
+          </div>
         )}
 
         {/* Duplicate banner */}
@@ -881,10 +965,14 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
                           key={i}
                           activity={a}
                           accountName={accountName}
-                          included={a.lineNumber == null || !excludedLines.has(a.lineNumber)}
-                          onToggleInclude={() =>
-                            a.lineNumber != null && toggleExclude(a.lineNumber)
-                          }
+                          included={!isExcluded(a)}
+                          existing={isExisting(a)}
+                          onToggleInclude={() => {
+                            if (a.lineNumber == null) return;
+                            const group = existingMatches.get(a.lineNumber);
+                            if (group) toggleLines(group);
+                            else toggleExclude(a.lineNumber);
+                          }}
                         />
                       ))}
                     </tbody>
@@ -922,7 +1010,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   // ── Done ─────────────────────────────────────────────────────────────────
 
   if (step === "done" && importResult) {
-    const { total, imported, userSkipped, failed } = importResult;
+    const { total, imported, updated, userSkipped, failed } = importResult;
+    const created = imported - updated;
     const ok = failed.length === 0;
 
     return (
@@ -936,12 +1025,15 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           )}
           <div>
             <h1 className="text-2xl font-semibold">{ok ? "Import complete" : "Import finished with issues"}</h1>
-            <p className="text-muted-foreground text-sm">{imported} activities imported successfully.</p>
+            <p className="text-muted-foreground text-sm">
+              {created} new {created === 1 ? "activity" : "activities"} imported
+              {updated > 0 && `, ${updated} existing updated`}.
+            </p>
           </div>
         </div>
 
         {/* Summary tiles */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-5 gap-3">
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold">{total}</p>
@@ -950,14 +1042,20 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{imported}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Imported</p>
+              <p className="text-2xl font-bold text-green-600">{created}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">New</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <p className="text-2xl font-bold">{updated}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">Updated</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-muted-foreground text-2xl font-bold">{userSkipped}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Manually skipped</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">Skipped</p>
             </CardContent>
           </Card>
           <Card>

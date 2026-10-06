@@ -34,7 +34,8 @@ accounts as their CSV export; DKB has its own pair. Optionally add **transfer pa
    - Scalable Capital: transactions export (`scalable_transactions_export_<date>_de.csv`)
 2. **Broker Import → Import**, drop the file.
 3. Map unknown securities to a ticker (remembered for future imports).
-4. Review and import. Activities that already exist are flagged as duplicates. Above the
+4. Review and import. Activities that already exist are flagged as duplicates and
+   updated; the button shows how many are new and how many are updated. Above the
    list, a check shows the cash balance after the import next to the broker's balance from
    the file, warns about cash left on the securities account or negative holdings, and the
    **Holdings** tab lists the resulting positions — compare them with your broker app.
@@ -58,8 +59,12 @@ Other documents (account statements, Vorabpauschale, interest, corporate actions
 cancellations, bonds) are listed under **Skipped** with the reason. A statement that is
 uploaded twice is imported once, and importing it again later is recognised as a
 duplicate. Statements hold no deposits or withdrawals, so the cash account shows only
-their effect. **Don't import the same period from the CSV export and from PDFs** — the
-two aren't recognised as duplicates of each other.
+their effect.
+
+Trades and dividends that are already in Wealthfolio from the other source (CSV export
+vs. PDF statement) are marked **In Wealthfolio** in the review and skipped together with
+their cash transfers, unless you include them. They are found by account, type,
+security, day, shares and amount.
 
 ## Supported transactions
 

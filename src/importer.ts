@@ -1,4 +1,11 @@
-import type { ActivityCreate, ActivityImport, ActivityUpdate, AddonContext, QuoteMode } from "@wealthfolio/addon-sdk";
+import type {
+  ActivityCreate,
+  ActivityDetails,
+  ActivityImport,
+  ActivityUpdate,
+  AddonContext,
+  QuoteMode,
+} from "@wealthfolio/addon-sdk";
 import { isCashSymbol } from "./common";
 import type { ActivityImportEx, SecurityMapping } from "./types";
 
@@ -74,9 +81,101 @@ export function selectCandidates(
   excludedLines: Set<number>,
 ): { candidates: ActivityImport[]; userSkipped: number } {
   const isExcluded = (a: ActivityImport) => a.lineNumber != null && excludedLines.has(a.lineNumber);
-  const userSkipped = checked.filter((a) => activityStatus(a) === "duplicate" && isExcluded(a)).length;
+  const userSkipped = checked.filter((a) => activityStatus(a) !== "error" && isExcluded(a)).length;
   const candidates = checked.filter((a) => activityStatus(a) !== "error" && !isExcluded(a));
   return { candidates, userSkipped };
+}
+
+// ── Already in Wealthfolio from another source ──────────────────────────────
+// checkImport only recognises an activity imported from the same source (same
+// comment and amount). A trade or dividend imported once from the CSV export
+// and once from the PDF statement differs in comment and time, so it would be
+// created twice. matchExisting finds such activities by their substance:
+// account, type, security, day, shares and amount.
+
+const MATCH_TYPES = new Set(["BUY", "SELL", "DIVIDEND"]);
+// CSV timestamps and PDF execution/payment times of the same transaction lie
+// within a day of each other (time zone, noon for dividends).
+const MATCH_WINDOW_MS = 36 * 60 * 60 * 1000;
+const AMOUNT_TOLERANCE = 0.02;
+// Transfer legs of a trade or dividend are booked a few seconds before/after it.
+const LEG_WINDOW_MS = 5 * 1000;
+
+const toNum = (v: unknown) => {
+  const n = Number(v ?? NaN);
+  return Number.isFinite(n) ? n : NaN;
+};
+
+function existingAmount(e: ActivityDetails): number {
+  const amount = toNum(e.amount);
+  if (!Number.isNaN(amount)) return Math.abs(amount);
+  return Math.abs(toNum(e.quantity) * toNum(e.unitPrice));
+}
+
+// Lines of `checked` that already exist in Wealthfolio under another source,
+// each mapped to every line of its transaction (the trade or dividend plus its
+// transfer legs and a tax-refund credit), so the whole
+// transaction is skipped or included together. Activities checkImport already
+// flags as duplicates are left to that mechanism; the existing activities they
+// point to can't match a second time.
+export function matchExisting(
+  checked: ActivityImport[],
+  existing: ActivityDetails[],
+  groupIdByLine: Map<number, string>,
+): Map<number, number[]> {
+  const claimed = new Set(checked.map((a) => a.duplicateOfId).filter(Boolean));
+  const pool = existing.filter((e) => MATCH_TYPES.has(e.activityType) && !claimed.has(e.id));
+  const used = new Set<string>();
+  const result = new Map<number, number[]>();
+
+  for (const a of checked) {
+    if (a.lineNumber == null || !MATCH_TYPES.has(a.activityType) || activityStatus(a) !== "valid") continue;
+    const time = new Date(String(a.date)).getTime();
+    const amount = Math.abs(toNum(a.amount));
+    const quantity = Math.abs(toNum(a.quantity));
+    const match = pool.find((e) => {
+      if (used.has(e.id) || e.accountId !== a.accountId || e.activityType !== a.activityType) return false;
+      const sameAsset = (!!a.assetId && e.assetId === a.assetId) || (!!a.symbol && e.assetSymbol === a.symbol);
+      if (!sameAsset) return false;
+      if (Math.abs(new Date(e.date).getTime() - time) > MATCH_WINDOW_MS) return false;
+      if (Math.abs(existingAmount(e) - amount) > AMOUNT_TOLERANCE) return false;
+      // Dividends: the CSV exports book the quantity differently (shares or 1).
+      return a.activityType === "DIVIDEND" || Math.abs(Math.abs(toNum(e.quantity)) - quantity) < 1e-6;
+    });
+    if (!match) continue;
+    used.add(match.id);
+
+    // The transaction's other lines: the transfer pair that funds or sweeps it
+    // (its leg on this account, seconds apart, over the same amount - the
+    // trade itself carries no group id) and a tax-refund credit at the same
+    // instant.
+    const near = (o: ActivityImport) =>
+      o.accountId === a.accountId && Math.abs(new Date(String(o.date)).getTime() - time) <= LEG_WINDOW_MS;
+    const groups = new Set<string>();
+    for (const o of checked) {
+      if (o.lineNumber == null || !near(o) || !isCashSymbol(o.symbol)) continue;
+      if (o.activityType !== "TRANSFER_IN" && o.activityType !== "TRANSFER_OUT") continue;
+      const group = groupIdByLine.get(o.lineNumber);
+      if (group && Math.abs(Math.abs(toNum(o.amount)) - amount) <= AMOUNT_TOLERANCE) groups.add(group);
+    }
+    const lines = checked
+      .filter(
+        (o) =>
+          o.lineNumber != null &&
+          (o === a ||
+            groups.has(groupIdByLine.get(o.lineNumber) ?? "") ||
+            (o.activityType === "CREDIT" && o.subtype === "TAX_REFUND" && near(o))),
+      )
+      .map((o) => o.lineNumber as number);
+    for (const ln of lines) result.set(ln, lines);
+  }
+  return result;
+}
+
+// The accounts whose existing activities matchExisting needs: those holding
+// trades and dividends in this import.
+export function accountsToMatch(checked: ActivityImport[]): string[] {
+  return [...new Set(checked.filter((a) => MATCH_TYPES.has(a.activityType)).map((a) => a.accountId))];
 }
 
 export type Payload = { kind: "update"; payload: ActivityUpdate } | { kind: "create"; payload: ActivityCreate };
@@ -125,8 +224,18 @@ export interface FailedActivity {
 }
 
 export interface ImportRun {
+  // Activities Wealthfolio accepted: new ones plus `updated` existing ones.
   imported: number;
+  updated: number;
   failed: FailedActivity[];
+}
+
+// Text of the import button. Duplicates are existing activities that get
+// updated, not imported again, so they are counted separately.
+export function importButtonLabel(newCount: number, updateCount: number): string {
+  if (updateCount === 0) return `Import ${newCount} ${newCount === 1 ? "activity" : "activities"}`;
+  if (newCount === 0) return `Update ${updateCount} existing`;
+  return `Import ${newCount} new · update ${updateCount} existing`;
 }
 
 export function errorMessage(e: unknown): string {
@@ -151,7 +260,7 @@ export async function runImport(
   groupIdByLine: Map<number, string>,
   onProgress?: (done: number, total: number) => void,
 ): Promise<ImportRun> {
-  const run: ImportRun = { imported: 0, failed: [] };
+  const run: ImportRun = { imported: 0, updated: 0, failed: [] };
   for (let i = 0; i < activities.length; i++) {
     const a = activities[i];
     const sourceGroupId = a.lineNumber != null ? groupIdByLine.get(a.lineNumber) : undefined;
@@ -160,6 +269,7 @@ export async function runImport(
       if (p.kind === "update") await api.update(p.payload);
       else await api.create(p.payload);
       run.imported++;
+      if (p.kind === "update") run.updated++;
     } catch (e) {
       run.failed.push({ activity: a, error: errorMessage(e) });
     }

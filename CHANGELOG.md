@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.11.0] - 2026-10-06
+
+### Added
+
+- Trades and dividends that are already in Wealthfolio from another source are recognised, e.g. a buy imported from the CSV export and now uploaded as a PDF statement, or the other way round. Wealthfolio's own duplicate check misses them because the two sources differ in comment and time. The review marks them **In Wealthfolio** and skips them together with their cash transfers unless you include them; they are found by account, type, security, day (±1.5 days), shares and amount (±2 cents).
+- New permission: the addon reads the existing activities of the accounts it imports into (`activities.getAll`).
+
+### Fixed
+
+- The import button no longer counts activities that already exist in Wealthfolio as imports. Those duplicates are only updated, so the button now says e.g. "Import 3 new · update 6 existing", or "Update 6 existing" when nothing is new.
+- The result page shows new and updated activities in separate tiles.
+
 ## [2.10.0] - 2026-10-06
 
 ### Added

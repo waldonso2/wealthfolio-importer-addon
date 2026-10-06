@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.10.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.11.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -131,7 +131,7 @@ src/
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (33 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 ├── reconcile.test.ts       Tests für den Abgleich, inkl. beider Fixtures (9 Tests)
-├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (13 Tests)
+├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (19 Tests)
 └── __fixtures__/
     ├── tr-sample.csv       26 Zeilen, deckt alle unterstützten TR-Typen ab
     ├── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
@@ -605,6 +605,23 @@ Folgen für das Addon:
   Verkäufen mit Steuer und `amount` (netto statt brutto) bei Dividenden und Zinsen mit
   Steuer.
 
+**Gleiche Transaktion aus einer anderen Quelle (seit 2.11.0, `matchExisting` in
+`importer.ts`):** CSV und PDF desselben Brokers erzeugen andere Kommentare und Zeitpunkte,
+`checkImport` erkennt sie also nicht. Nach `checkImport` liest `runCheckImport` daher die
+bestehenden Aktivitäten der Konten mit Trades/Dividenden (`activities.getAll`) und sucht zu
+jedem `BUY`/`SELL`/`DIVIDEND` (Status „valid“) eine bestehende Aktivität mit gleichem Konto,
+Typ und Wertpapier (`assetSymbol` = Symbol oder gleiche `assetId`), höchstens 36 h Abstand,
+gleicher Stückzahl (nicht bei Dividenden – die CSV-Exporte buchen dort Stück bzw. 1) und
+Betrag ±0,02. Jede bestehende Aktivität passt höchstens einmal; die Ziele von
+`duplicateOfId` sind ausgenommen. Zum Treffer gehören seine Überträge (das Paar, dessen
+Bein auf diesem Konto ≤ 5 s daneben liegt und denselben Betrag hat – der Trade selbst
+trägt keine `transferGroupId`) und eine `CREDIT`/`TAX_REFUND` im selben Zeitfenster.
+Alle Zeilen der Transaktion landen vorausgewählt in `excludedLines`, die Review zeigt sie
+als „In Wealthfolio“ und schaltet sie nur gemeinsam um. Schlägt das Lesen fehl, erscheint
+ein Hinweis und es wird nichts ausgeschlossen. An echten Exporten (TR 1554, Scalable 506
+Aktivitäten) und den zugehörigen PDFs wurden in beiden Richtungen genau die gemeinsamen
+Transaktionen gefunden.
+
 ---
 
 ### 6.5 Abgleich vor dem Import (`reconcile.ts`, seit 2.7.0)
@@ -702,7 +719,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 | Kategorie | Funktionen | Genutzt in |
 |---|---|---|
 | `accounts` | `getAll` | ImportPage, SettingsPage |
-| `activities` | `checkImport`, `create`, `update` (`saveMany` deklariert, derzeit ungenutzt) | ImportPage |
+| `activities` | `checkImport`, `getAll` (seit 2.11.0, Abgleich mit dem Bestand, 6.4), `create`, `update` (`saveMany` deklariert, derzeit ungenutzt) | ImportPage |
 | `assets` | `create` (deklariert; Assets entstehen implizit über `asset` im Create/Update) | – |
 | `secrets` | `get`, `set` | settings.ts |
 | `ui` | `sidebar.addItem`, `navigation.navigate`, `router.add`, `onDisable` | addon.tsx |
@@ -719,7 +736,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 156 Tests in sechs Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts`, `reconcile.ts` und `pdf/`.
+- 162 Tests in sechs Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts`, `reconcile.ts` und `pdf/`.
 - **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
@@ -730,11 +747,14 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
   Formaterkennung, `tradeFinalCash`, Fixture-Test mit
   `src/__fixtures__/scalable-sample.csv` (26 Zeilen → 33 Aktivitäten + 9 skipped,
   Endbestände). Die Tests laufen unabhängig von der Zeitzone des Rechners.
-- **`src/importer.test.ts`** (13 Tests, mit nachgebauter `activities`-API):
+- **`src/importer.test.ts`** (19 Tests, mit nachgebauter `activities`-API):
   `activityStatus`, `applySecurityMappings` (Ticker, „custom“ → MANUAL je ISIN),
   `selectCandidates`, `groupIdsByLine`, `buildPayload` (create/update, `tax`,
   `quoteMode`, `sourceGroupId`), `runImport` (Fortschritt, Fehlersammlung, Retry nur der
-  Fehlschläge mit `sourceGroupId`), `failedAsCsv`.
+  Fehlschläge mit `sourceGroupId`, Zählung neu/aktualisiert), `failedAsCsv`,
+  `importButtonLabel`, `matchExisting` (Treffer samt Überträgen, keine Treffer bei anderem
+  Tag/Stück/Betrag/Wertpapier/Konto, Zuordnung über `assetId`, Dividenden ohne Stückvergleich,
+  `duplicateOfId` ausgenommen).
 - **`src/reconcile.test.ts`** (9 Tests): `cashEffect`, Cash-Saldo, Bargeld im Depot,
   Bestände mit Split/Dividende in Aktien/Wechsel, negative Bestände; Abgleich beider
   Fixtures gegen den Broker-Saldo aus der Datei (TR: Differenz 0; Scalable: −1 € durch
@@ -887,9 +907,9 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 14. ~~Scalable fasste Gebühr und Steuer bei Trades zu `fee` zusammen~~ – erledigt in 2.9.0
     (#26). Dividenden bleiben ohne Steueraufteilung, weil der Export bei Dividenden nur den
     Nettobetrag liefert. Für Brutto und Steuer gibt es seit 2.10.0 den PDF-Beleg (17).
-15. **PDF-Import** (17.6): nur am echten Addon prüfbar ist, ob pdf.js in der Sandbox von
-    Wealthfolio läuft; CSV- und PDF-Aktivitäten erkennen sich nicht gegenseitig als
-    Duplikat; ein DKB-Verkauf ist nur an Beispieltexten geprüft.
+15. **PDF-Import** (17.6): ein DKB-Verkauf ist nur an Beispieltexten geprüft. Der Abgleich
+    CSV ↔ PDF (6.4, seit 2.11.0) sucht nach Inhalt; zwei echte, gleiche Käufe am selben
+    Tag würden einander zugeordnet – die Review zeigt sie, „Include“ hebt das auf.
 
 ---
 
@@ -1094,6 +1114,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
 | 2.7.0 | Feature | **Abgleich vor dem Import** (#10): Cash-Saldo nach Import im Vergleich zum Broker-Saldo aus der Datei, Warnung bei Bargeld auf dem Portfolio-Konto und negativen Beständen, Reiter „Holdings“. `parseAndTransform` liefert `brokerCash`. | `reconcile.ts`, `formats.ts`, `transform.ts`, `scalable.ts`, `ImportPage.tsx` | 6.2, 6.5 |
 | 2.8.0 | Feature | **Fehlgeschlagene Aktivitäten anzeigen und wiederholen** (#11): Tabelle mit Wealthfolios Fehlermeldung, „Retry N failed“ (behält `sourceGroupId`), CSV zum Kopieren. **Import-Logik in `importer.ts`** ausgelagert (#13 Stufe 1), ohne Verhaltensänderung, mit Tests. | `importer.ts`, `ImportPage.tsx` | 3, 6.2, 6.3, 10, 12.5 |
+| 2.11.0 | Feature + Fix | **Abgleich mit dem Bestand:** Trades und Dividenden, die schon aus der anderen Quelle (CSV ↔ PDF) in Wealthfolio stehen, werden samt Überträgen erkannt und standardmäßig übersprungen (`matchExisting`, neue Berechtigung `activities.getAll`). **Anzeige:** Import-Button und Ergebnisseite zählen bestehende Aktivitäten (Duplikate, die aktualisiert werden) getrennt von neuen: „Import 3 new · update 6 existing“, Kacheln „New“/„Updated“/„Skipped“. | `importer.ts`, `ImportPage.tsx`, `manifest.json` | 6.4, 9 |
 | 2.10.0 | Feature | **PDF-Belege** (#15): beliebig viele Kauf-, Verkaufs- und Dividendenbelege eines Brokers (Trade Republic, Scalable Capital, DKB) pro Import; Broker am Inhalt erkannt, Import in das Kontenpaar des Brokers aus den Einstellungen (neu: DKB-Paar). pdf.js im Hauptthread. | `pdf/*`, `formats.ts`, `types.ts`, `settings.ts`, `ImportPage.tsx`, `SettingsPage.tsx`, `vite.config.ts` | 3, 8.1, 17 |
 | 2.9.0 | Änderung (Datenänderung) | **Scalable an 2.6.0 angeglichen** (#26): Kauf/Verkauf mit `fee` = Gebühren und `tax` = Steuern statt beides in `fee`; negative Steuern als `CREDIT`/`TAX_REFUND`. Dividenden unverändert (Export ohne Steuer). **Bereits importierte Scalable-Verkäufe mit Steuer gelten nicht mehr als Duplikat.** | `scalable.ts` | 13 Nr. 14, 14.3 |
 
@@ -1291,8 +1312,8 @@ Wie beim CSV-Import (5.5 Nr. 4, 7, 10); `transferGroupId` = `pdf-tr-|pdf-sc-|pdf
 1. **pdf.js in der Wealthfolio-Sandbox** ist nur am echten Addon prüfbar. Der Worker läuft
    im Hauptthread, eine Worker-Datei wird nicht nachgeladen; ob die Sandbox weitere
    Browser-Funktionen sperrt, zeigt erst der erste echte Upload.
-2. **CSV und PDF desselben Brokers** erkennen sich nicht als Duplikat (andere Kommentare
-   und Zeitpunkte). Pro Zeitraum eine Quelle nutzen – die Review-Ansicht weist darauf hin.
+2. ~~CSV und PDF desselben Brokers erkennen sich nicht als Duplikat~~ – seit 2.11.0 findet
+   `matchExisting` dieselbe Transaktion aus der anderen Quelle (6.4).
 3. **DKB-Verkauf** ist nur an PPs Beispieltexten geprüft, nicht an einem echten Beleg.
 4. **TR Saveback:** Der Beleg zeigt eine Belastung des Verrechnungskontos; die
    Saveback-Gutschrift selbst steht nicht im Beleg.
