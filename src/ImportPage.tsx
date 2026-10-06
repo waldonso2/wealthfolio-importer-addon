@@ -23,7 +23,8 @@ import { loadSettings, saveSettings } from "./settings";
 import { SecurityMappingStep } from "./SecurityMappingStep";
 import type { SecurityInfo, SecurityMapping } from "./SecurityMappingStep";
 import { isCashSymbol } from "./common";
-import { FORMAT_LABEL, isFormatConfigured, parseAndTransform, type ImportFormat } from "./formats";
+import { FORMAT_LABEL, formatAccounts, isFormatConfigured, parseAndTransform, type ImportFormat } from "./formats";
+import { cashDifference, reconcile, type Reconciliation } from "./reconcile";
 import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult } from "./types";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -189,6 +190,99 @@ function SkippedTable({ rows }: { rows: SkippedRow[] }) {
   );
 }
 
+// ─── Reconciliation (#10) ───────────────────────────────────────────────────
+
+const fmtMoney = (amount: number, currency: string) =>
+  `${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+const fmtShares = (q: number) => q.toLocaleString(undefined, { maximumFractionDigits: 6 });
+
+// What the broker's two accounts will look like after the import, from the file
+// alone - so mapping errors show up before anything reaches Wealthfolio.
+function ReconcileSummary({ rec, broker, notImported }: { rec: Reconciliation; broker: string; notImported: number }) {
+  const diff = cashDifference(rec);
+  const cashEntries = Object.entries(rec.cash);
+  const leftover = Object.entries(rec.portfolioCash);
+  const ok = "text-green-700 dark:text-green-400";
+  return (
+    <Card>
+      <CardContent className="space-y-2 p-4 text-sm">
+        <div className="flex flex-wrap gap-x-8 gap-y-2">
+          <div>
+            <p className="text-muted-foreground text-xs">Cash account after import</p>
+            <p className="font-medium">
+              {cashEntries.length === 0 ? "0.00" : cashEntries.map(([c, v]) => fmtMoney(v, c)).join(" · ")}
+            </p>
+            {rec.brokerCash &&
+              (diff === 0 ? (
+                <p className={`text-xs ${ok}`}>Matches the {broker} balance in the file</p>
+              ) : (
+                <p className="text-destructive text-xs">
+                  {broker} balance in the file: {fmtMoney(rec.brokerCash.amount, rec.brokerCash.currency)} — differs by{" "}
+                  {fmtMoney(diff, rec.brokerCash.currency)}
+                  {notImported > 0 && ` (see the ${notImported} not imported rows under Skipped)`}
+                </p>
+              ))}
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Cash left on the securities account</p>
+            {leftover.length === 0 ? (
+              <p className={`font-medium ${ok}`}>None</p>
+            ) : (
+              <p className="text-destructive font-medium">
+                {leftover.map(([c, v]) => fmtMoney(v, c)).join(" · ")} — should be 0
+              </p>
+            )}
+          </div>
+          <div>
+            <p className="text-muted-foreground text-xs">Positions after import</p>
+            <p className="font-medium">{rec.holdings.length} (see Holdings)</p>
+          </div>
+        </div>
+        {rec.negative.length > 0 && (
+          <p className="text-destructive text-xs">
+            Negative holdings — rows are missing or mapped wrongly:{" "}
+            {rec.negative.map((n) => `${n.name || n.symbol} (${fmtShares(n.quantity)} on ${n.date})`).join(", ")}
+          </p>
+        )}
+        <p className="text-muted-foreground text-xs">
+          Computed from this file only. Compare with your {broker} app; if the file doesn't cover the full history, the
+          balance and holdings differ.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function HoldingsTable({ rec }: { rec: Reconciliation }) {
+  if (rec.holdings.length === 0) return <p className="text-muted-foreground p-3 text-xs">No positions.</p>;
+  return (
+    <div className="max-h-96 overflow-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-background sticky top-0 border-b">
+          <tr>
+            {["Security", "ISIN / symbol", "Shares"].map((h) => (
+              <th key={h} className="text-muted-foreground px-2 py-1.5 text-left font-medium">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rec.holdings.map((h) => (
+            <tr key={h.symbol} className="border-border/50 border-b">
+              <td className="px-2 py-1">{h.name || "—"}</td>
+              <td className="px-2 py-1 font-mono">{h.symbol}</td>
+              <td className={`px-2 py-1 text-right font-mono ${h.quantity < 0 ? "text-destructive" : ""}`}>
+                {fmtShares(h.quantity)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ─── ActivityRow ─────────────────────────────────────────────────────────────
 
 function ActivityRow({
@@ -259,6 +353,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   const [parseResult, setParseResult] = useState<TransformResult | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [format, setFormat] = useState<ImportFormat | null>(null);
+  const [brokerCash, setBrokerCash] = useState<{ currency: string; amount: number } | null>(null);
   const [securities, setSecurities] = useState<SecurityInfo[]>([]);
   const [mappings, setMappings] = useState<Map<string, SecurityMapping>>(new Map());
   const [checked, setChecked] = useState<ActivityImport[] | null>(null);
@@ -352,6 +447,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       const { result } = outcome;
       setParseResult(result);
       setFormat(outcome.format);
+      setBrokerCash(outcome.brokerCash);
       setFileName(file.name);
       setChecked(null);
       setExcludedLines(new Set());
@@ -552,6 +648,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     setParseResult(null);
     setFileName("");
     setFormat(null);
+    setBrokerCash(null);
     setSecurities([]);
     setMappings(new Map());
     setChecked(null);
@@ -686,6 +783,12 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     const unsupported = parseResult?.skipped ?? [];
     const notImported = unsupported.filter((r) => r.kind !== "netted").length;
     const nettedOut = unsupported.length - notImported;
+    // Mapping as in the file (Wealthfolio symbols change only the symbol, not the
+    // quantities), so ISINs are used for the holdings.
+    const rec =
+      parseResult && format && settings
+        ? reconcile(parseResult.activities, formatAccounts(format, settings), brokerCash ?? undefined)
+        : null;
 
     const visibleActivities = showDuplicatesOnly
       ? checked.filter((a) => activityStatus(a) === "duplicate")
@@ -721,6 +824,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           </div>
         </div>
 
+        {rec && format && <ReconcileSummary rec={rec} broker={FORMAT_LABEL[format]} notImported={notImported} />}
+
         {/* Duplicate banner */}
         {duplicates.length > 0 && (
           <div className="bg-muted flex items-center justify-between rounded-lg px-4 py-3 text-sm">
@@ -748,6 +853,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
                 <TabsList>
                   <TabsTrigger value="activities">Activities ({checked.length})</TabsTrigger>
                   <TabsTrigger value="unsupported">Skipped ({unsupported.length})</TabsTrigger>
+                  {rec && <TabsTrigger value="holdings">Holdings ({rec.holdings.length})</TabsTrigger>}
                 </TabsList>
                 {duplicates.length > 0 && (
                   <button
@@ -800,6 +906,11 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
               <TabsContent value="unsupported" className="mt-0">
                 <SkippedTable rows={unsupported} />
               </TabsContent>
+              {rec && (
+                <TabsContent value="holdings" className="mt-0">
+                  <HoldingsTable rec={rec} />
+                </TabsContent>
+              )}
             </Tabs>
           </CardContent>
         </Card>
