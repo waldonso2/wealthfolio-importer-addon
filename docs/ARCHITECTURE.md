@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.8.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.9.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -113,7 +113,7 @@ src/
 ├── reconcile.ts            Abgleich vor dem Import: Cash-Saldo, Bargeld im Depot, Bestände (6.5)
 ├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, SkippedRow/SkipKind, …)
 ├── transform.test.ts       Unit- und Fixture-Tests für transform() (73 Tests)
-├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
+├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (33 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 ├── reconcile.test.ts       Tests für den Abgleich, inkl. beider Fixtures (9 Tests)
 ├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (13 Tests)
@@ -695,13 +695,13 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 134 Tests in fünf Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts` und `reconcile.ts`.
+- 136 Tests in fünf Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts` und `reconcile.ts`.
 - **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
   1 skipped) und einzelne Fälle, inkl. der Invariante „jedes interne Paar teilt eine
   `transferGroupId`" und des exakten `amount` bei `BUY`/`SELL`.
-- **`src/scalable.test.ts`** (31 Tests, Scalable Capital): Zahlen- und Zeitzonen-Parser
+- **`src/scalable.test.ts`** (33 Tests, Scalable Capital): Zahlen- und Zeitzonen-Parser
   (Sommer/Winter), jeder Typ, Storno, Depotumzug, `SWAP_OUT`, Rückzahlung,
   Formaterkennung, `tradeFinalCash`, Fixture-Test mit
   `src/__fixtures__/scalable-sample.csv` (26 Zeilen → 33 Aktivitäten + 9 skipped,
@@ -853,9 +853,9 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
     dem Verhältnis in `amount`, `DIVIDEND_IN_KIND`, `SELL` zu 0 (`WORTHLESS`) und
     `quoteMode: "MANUAL"` für „custom“-Aktien. Erst ein echter Import zeigt, ob
     `checkImport` sie annimmt. Dasselbe gilt für das Feld `tax` (seit 2.6.0).
-14. **Scalable Capital fasst Gebühr und Steuer bei Trades noch zu `fee` zusammen** und
-    bucht Dividenden ohne Steueraufteilung (14.3). Eine Angleichung an 2.6.0 würde dort
-    ebenfalls Duplikat-Fingerabdrücke ändern.
+14. ~~Scalable fasste Gebühr und Steuer bei Trades zu `fee` zusammen~~ – erledigt in 2.9.0
+    (#26). Dividenden bleiben ohne Steueraufteilung, weil der Export bei Dividenden nur den
+    Nettobetrag liefert.
 
 ---
 
@@ -919,9 +919,9 @@ Alle Zeit-Versätze (`addSec`) und `transferGroupId`-Regeln aus 5.5 gelten unver
 
 | Scalable `Typ` | Häufigkeit im Beispiel | Erzeugte Aktivitäten | TR-Gegenstück | |
 |---|---|---|---|---|
-| `Kauf` | 91 | C `TRANSFER_OUT` (t−2s, \|Wert\|) → P `TRANSFER_IN` (t−1s) → P `BUY` (t; `quantity`=Stück, `unitPrice`=Bruttobetrag/Stück, `fee`=Gebühren+Steuern, `amount`=`tradeFinalCash`) | `TRADING/BUY` | **[=]** Logik, **[Δ]** Feldquellen |
-| `Verkauf` | 10 | P `SELL` (t, `amount`=`tradeFinalCash`) → P `TRANSFER_OUT` (t+1s, Wert) → C `TRANSFER_IN` (t+2s) | `TRADING/SELL` | **[=]** Logik, **[Δ]** Feldquellen |
-| `Dividende` (Wert > 0) | 47 | P `DIVIDEND` (amount=Wert, quantity="1") → P `TRANSFER_OUT` → C `TRANSFER_IN` | `CASH/DIVIDEND` | **[Δ]** keine Steuer-/FX-Aufteilung |
+| `Kauf` | 91 | C `TRANSFER_OUT` (t−2s, \|Wert\|) → P `TRANSFER_IN` (t−1s) → P `BUY` (t; `quantity`=Stück, `unitPrice`=Bruttobetrag/Stück, `fee`=Gebühren, `tax`=Steuern (seit 2.9.0, vorher zusammen in `fee`), `amount`=`tradeFinalCash`) | `TRADING/BUY` | **[=]** Logik, **[Δ]** Feldquellen |
+| `Verkauf` | 10 | P `SELL` (t, `fee`=Gebühren, `tax`=Steuern, `amount`=`tradeFinalCash` = Brutto − Gebühren − Steuern) → P `TRANSFER_OUT` (t+1s, Wert) → C `TRANSFER_IN` (t+2s). Negative Steuern (Erstattung): zusätzlich P `CREDIT`/`TAX_REFUND` | `TRADING/SELL` | **[=]** Logik, **[Δ]** Feldquellen |
+| `Dividende` (Wert > 0) | 47 | P `DIVIDEND` (amount=Wert, quantity="1") → P `TRANSFER_OUT` → C `TRANSFER_IN` | `CASH/DIVIDEND` | **[Δ]** keine Steuer-/FX-Aufteilung – der Export liefert bei Dividenden weder `Steuern` noch `Bruttobetrag`, nur den Nettobetrag (geprüft an einem echten Export, 48 Zeilen) |
 | `Dividende` (Wert < 0, `Notiz` enthält `CANCEL-<Ref>`) | 1 | **Storno:** Stornozeile **und** die ursprüngliche Dividende (gleiche ISIN, gleicher Betrag, `Notiz` enthält `<Ref>`) → beide `skipped`; die Neubuchung bleibt | – | **[NEU]** |
 | `Zinsen` | 9 | C `INTEREST` | `INTEREST_PAYMENT` | **[=]** |
 | `Einlage` | 21 | C `DEPOSIT` (immer, ohne Pattern-Prüfung) | `CUSTOMER_INBOUND` | **[=]** Eingangs-Regel |
@@ -1060,6 +1060,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
 | 2.7.0 | Feature | **Abgleich vor dem Import** (#10): Cash-Saldo nach Import im Vergleich zum Broker-Saldo aus der Datei, Warnung bei Bargeld auf dem Portfolio-Konto und negativen Beständen, Reiter „Holdings“. `parseAndTransform` liefert `brokerCash`. | `reconcile.ts`, `formats.ts`, `transform.ts`, `scalable.ts`, `ImportPage.tsx` | 6.2, 6.5 |
 | 2.8.0 | Feature | **Fehlgeschlagene Aktivitäten anzeigen und wiederholen** (#11): Tabelle mit Wealthfolios Fehlermeldung, „Retry N failed“ (behält `sourceGroupId`), CSV zum Kopieren. **Import-Logik in `importer.ts`** ausgelagert (#13 Stufe 1), ohne Verhaltensänderung, mit Tests. | `importer.ts`, `ImportPage.tsx` | 3, 6.2, 6.3, 10, 12.5 |
+| 2.9.0 | Änderung (Datenänderung) | **Scalable an 2.6.0 angeglichen** (#26): Kauf/Verkauf mit `fee` = Gebühren und `tax` = Steuern statt beides in `fee`; negative Steuern als `CREDIT`/`TAX_REFUND`. Dividenden unverändert (Export ohne Steuer). **Bereits importierte Scalable-Verkäufe mit Steuer gelten nicht mehr als Duplikat.** | `scalable.ts` | 13 Nr. 14, 14.3 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).

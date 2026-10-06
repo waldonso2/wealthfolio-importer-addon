@@ -108,6 +108,19 @@ export function scalableBrokerCash(rows: ScRow[]): number {
   return rows.reduce((sum, r) => sum + ((r.Typ ?? "").trim() ? deNum(r.Wert) : 0), 0);
 }
 
+// Fee and tax of a Kauf/Verkauf for Wealthfolio's separate fee and tax fields.
+// Scalable exports both as positive charges; a negative "Steuern" is a refund,
+// which Wealthfolio's tax field can't hold, so it becomes a CREDIT/TAX_REFUND.
+function tradeCharges(r: ScRow): { fee: string; tax: string | undefined; refund: number } {
+  const fee = Math.abs(deNum(r.Gebühren));
+  const steuern = deNum(r.Steuern);
+  return {
+    fee: fee ? fmtAmt(fee) : "0",
+    tax: steuern > 0 ? fmtAmt(steuern) : undefined,
+    refund: steuern < 0 ? -steuern : 0,
+  };
+}
+
 export function transformScalable(input: ScRow[], config: AddonSettings): TransformResult {
   // Short rows from the CSV parser leave columns undefined; normalise to "".
   const rows: ScRow[] = input.map((r) => {
@@ -291,7 +304,7 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       case "Kauf": {
         const shares = deNum(r.Stück);
         const brutto = deNum(r.Bruttobetrag);
-        const feeTotal = deNum(r.Gebühren) + deNum(r.Steuern);
+        const { fee, tax, refund } = tradeCharges(r);
         const groupId = `sc-buy-${id}`;
         activities.push(
           cashAct(cashAccountId, "TRANSFER_OUT", addSec(dt, -2), abs, `Funds for ${r.ISIN} (${r.Wertpapiername}) buy -> Portfolio${timeTag(dt)}`, undefined, groupId),
@@ -308,20 +321,24 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
           quoteCcy: ccy,
           quantity: qty(r.Stück),
           unitPrice: shares ? fmtAmt(brutto / shares) : "0",
-          fee: feeTotal ? fmtAmt(feeTotal) : "0",
-          amount: tradeFinalCash("BUY", qty(r.Stück), shares ? fmtAmt(brutto / shares) : "0", feeTotal ? fmtAmt(feeTotal) : "0"),
+          fee,
+          tax,
+          amount: tradeFinalCash("BUY", qty(r.Stück), shares ? fmtAmt(brutto / shares) : "0", fee, tax),
           currency: ccy,
           comment: `${r.Wertpapiername}${timeTag(dt)}`,
           isValid: true,
           isDraft: false,
         });
+        if (refund) {
+          activities.push(cashAct(portfolioAccountId, "CREDIT", dt, refund, `Tax refund on purchase of ${r.Wertpapiername}${timeTag(dt)}`, "TAX_REFUND"));
+        }
         break;
       }
 
       case "Verkauf": {
         const shares = deNum(r.Stück);
         const brutto = deNum(r.Bruttobetrag);
-        const feeTotal = deNum(r.Gebühren) + deNum(r.Steuern);
+        const { fee, tax, refund } = tradeCharges(r);
         activities.push({
           accountId: portfolioAccountId,
           activityType: "SELL",
@@ -331,13 +348,17 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
           quoteCcy: ccy,
           quantity: qty(r.Stück),
           unitPrice: shares ? fmtAmt(brutto / shares) : "0",
-          fee: feeTotal ? fmtAmt(feeTotal) : "0",
-          amount: tradeFinalCash("SELL", qty(r.Stück), shares ? fmtAmt(brutto / shares) : "0", feeTotal ? fmtAmt(feeTotal) : "0"),
+          fee,
+          tax,
+          amount: tradeFinalCash("SELL", qty(r.Stück), shares ? fmtAmt(brutto / shares) : "0", fee, tax),
           currency: ccy,
           comment: `${r.Wertpapiername}${timeTag(dt)}`,
           isValid: true,
           isDraft: false,
         });
+        if (refund) {
+          activities.push(cashAct(portfolioAccountId, "CREDIT", dt, refund, `Tax refund on sale of ${r.Wertpapiername}${timeTag(dt)}`, "TAX_REFUND"));
+        }
         sweepToCash(dt, abs, `${r.ISIN} (${r.Wertpapiername}) sale`, `sc-sell-${id}`);
         break;
       }

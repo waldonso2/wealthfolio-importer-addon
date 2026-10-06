@@ -109,10 +109,38 @@ describe("Kauf / Verkauf", () => {
       CONFIG,
     );
     expect(types(activities)).toEqual(["sc-portfolio:SELL", "sc-portfolio:TRANSFER_OUT", "sc-cash:TRANSFER_IN"]);
-    expect(activities[0].fee).toBe("266.2");
+    // fee and tax in their own fields; amount = gross − fee − tax = Wert
+    expect(activities[0]).toMatchObject({ fee: "0.99", tax: "265.21" });
+    expect(Number(activities[0].amount)).toBeCloseTo(5796.74, 6);
     expect(activities[1].amount).toBe("5796.74");
     expect(activities[1].transferGroupId).toBe("sc-sell-ORDER2");
     expect(activities[2].transferGroupId).toBe("sc-sell-ORDER2");
+  });
+
+  it("Kauf without tax keeps fee and amount as before and has no tax field", () => {
+    const { activities } = transformScalable(
+      [row({ Typ: "Kauf", ISIN: "IE00TEST0001", Wert: "-1001", Stück: "10", Gebühren: "1", Steuern: "0", Bruttobetrag: "1000", Notiz: "O9" })],
+      CONFIG,
+    );
+    const buy = activities.find((a) => a.activityType === "BUY")!;
+    expect(buy).toMatchObject({ fee: "1", amount: "1001" });
+    expect(buy.tax).toBeUndefined();
+  });
+
+  it("a negative Steuern (refund) on a Verkauf becomes a CREDIT/TAX_REFUND and is swept to cash", () => {
+    const { activities } = transformScalable(
+      [row({ Typ: "Verkauf", ISIN: "IE00TEST0002", Wert: "1011", Stück: "10", Gebühren: "1", Steuern: "-12", Bruttobetrag: "1000", Notiz: "O10" })],
+      CONFIG,
+    );
+    const sell = activities.find((a) => a.activityType === "SELL")!;
+    expect(sell).toMatchObject({ fee: "1", amount: "999" });
+    expect(sell.tax).toBeUndefined();
+    expect(activities.find((a) => a.activityType === "CREDIT")).toMatchObject({
+      accountId: "sc-portfolio",
+      subtype: "TAX_REFUND",
+      amount: "12",
+    });
+    expect(activities.find((a) => a.activityType === "TRANSFER_OUT")!.amount).toBe("1011");
   });
 });
 
@@ -353,7 +381,9 @@ describe("trade amount (idempotency)", () => {
     const sell = activities.find((a) => a.activityType === "SELL")!;
     expect(buy.amount).toBe(tradeFinalCash("BUY", String(buy.quantity), String(buy.unitPrice), String(buy.fee)));
     expect(Math.abs(Number(buy.amount) - 500)).toBeLessThan(0.005);
-    expect(sell.amount).toBe(tradeFinalCash("SELL", String(sell.quantity), String(sell.unitPrice), String(sell.fee)));
+    expect(sell.amount).toBe(
+      tradeFinalCash("SELL", String(sell.quantity), String(sell.unitPrice), String(sell.fee), String(sell.tax)),
+    );
     expect(Math.abs(Number(sell.amount) - 5796.74)).toBeLessThan(0.005);
   });
 });
