@@ -1,4 +1,4 @@
-import type { ActivityImport, SymbolSearchResult } from "@wealthfolio/addon-sdk";
+import type { ActivityDetails, ActivityImport, SymbolSearchResult } from "@wealthfolio/addon-sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
   activityStatus,
@@ -9,6 +9,8 @@ import {
   firstError,
   groupIdsByLine,
   importButtonLabel,
+  matchExisting,
+  accountsToMatch,
   runImport,
   selectCandidates,
   type ActivitiesApi,
@@ -108,6 +110,8 @@ describe("selectCandidates / groupIdsByLine", () => {
     const { candidates, userSkipped } = selectCandidates(checked, new Set([3]));
     expect(candidates.map((a) => a.lineNumber)).toEqual([1, 2]);
     expect(userSkipped).toBe(1);
+    // Excluded new activities (already in Wealthfolio from another source) count as skipped too.
+    expect(selectCandidates(checked, new Set([1, 3])).userSkipped).toBe(2);
   });
 
   it("maps lineNumber to transferGroupId from the transformer output", () => {
@@ -198,6 +202,78 @@ describe("runImport", () => {
     expect(retry).toEqual({ imported: 1, updated: 0, failed: [] });
     expect(create).toHaveBeenCalledTimes(1);
     expect(create.mock.calls[0][0]).toMatchObject({ comment: "in", sourceGroupId: "buy-1" });
+  });
+});
+
+describe("matchExisting", () => {
+  const existing = (o: Partial<ActivityDetails>): ActivityDetails =>
+    ({
+      id: "e1",
+      activityType: "BUY",
+      date: new Date("2024-01-01T08:30:00.000Z"),
+      quantity: "2",
+      unitPrice: "100",
+      amount: "201",
+      fee: "1",
+      currency: "EUR",
+      accountId: "portfolio",
+      assetId: "asset-1",
+      assetSymbol: "IE0001",
+      comment: "Fund [12:00:00.000]",
+      ...o,
+    }) as ActivityDetails;
+  // A PDF buy: funding pair (lines 1, 2) and the BUY (line 3), one group.
+  const pdfBuy = [
+    act({ lineNumber: 1, accountId: "cash", symbol: "$CASH-EUR", activityType: "TRANSFER_OUT", date: "2024-01-01T09:59:58.000Z" }),
+    act({ lineNumber: 2, symbol: "$CASH-EUR", activityType: "TRANSFER_IN", date: "2024-01-01T09:59:59.000Z" }),
+    act({ lineNumber: 3, comment: "Kauf Fund [PDF a-1]" }),
+  ] as ActivityImport[];
+  // As produced: only the transfer legs carry the group id.
+  const groups = new Map([
+    [1, "pdf-tr-a-1"],
+    [2, "pdf-tr-a-1"],
+  ]);
+
+  it("a trade already imported from the CSV matches with its transfer legs", () => {
+    const m = matchExisting(pdfBuy, [existing({})], groups);
+    expect([...m.keys()].sort()).toEqual([1, 2, 3]);
+    expect(m.get(1)).toEqual([1, 2, 3]);
+    expect(accountsToMatch(pdfBuy)).toEqual(["portfolio"]);
+  });
+
+  it("no match for another day, other shares, another amount, security or account", () => {
+    for (const o of [
+      { date: new Date("2024-01-03T10:00:00.000Z") },
+      { quantity: "3" },
+      { amount: "250" },
+      { assetSymbol: "IE0002", assetId: "asset-2" },
+      { accountId: "other" },
+    ]) {
+      expect(matchExisting(pdfBuy, [existing(o)], groups).size).toBe(0);
+    }
+  });
+
+  it("matches by asset id when the symbol differs (mapped ticker)", () => {
+    const mapped = pdfBuy.map((a) => (a.lineNumber === 3 ? { ...a, symbol: "VWRL.AS", assetId: "asset-1" } : a));
+    expect(matchExisting(mapped, [existing({})], groups).size).toBe(3);
+  });
+
+  it("dividends match on amount whatever the quantity; one existing activity matches once", () => {
+    const divs = [
+      act({ lineNumber: 1, activityType: "DIVIDEND", quantity: "16", amount: "19.14", date: "2024-03-01T11:00:00.000Z" }),
+      act({ lineNumber: 2, activityType: "DIVIDEND", quantity: "16", amount: "19.14", date: "2024-03-01T11:00:00.000Z" }),
+    ] as ActivityImport[];
+    const m = matchExisting(
+      divs,
+      [existing({ activityType: "DIVIDEND", quantity: "1", amount: "19.14", date: new Date("2024-03-01T07:00:00.000Z") })],
+      new Map(),
+    );
+    expect([...m.keys()]).toEqual([1]);
+  });
+
+  it("leaves checkImport duplicates and the activity they point to alone", () => {
+    const again = pdfBuy.map((a) => (a.lineNumber === 3 ? { ...a, duplicateOfId: "e1" } : a));
+    expect(matchExisting(again, [existing({})], groups).size).toBe(0);
   });
 });
 
