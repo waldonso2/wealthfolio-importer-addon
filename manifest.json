@@ -1,7 +1,7 @@
 {
   "id": "broker-importer",
   "name": "Broker Importer",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Import Trade Republic and Scalable Capital CSV exports into Wealthfolio. Detects the format automatically, splits cash and portfolio activities across two accounts per broker and handles internal fund transfers.",
   "author": "waldonso2",
   "main": "dist/addon.js",

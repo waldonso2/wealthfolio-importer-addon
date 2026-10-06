@@ -32,7 +32,10 @@ broker you use. Optionally add **transfer patterns** (see below).
    - Scalable Capital: transactions export (`scalable_transactions_export_<date>_de.csv`)
 2. **Broker Import → Import**, drop the file.
 3. Map unknown securities to a ticker (remembered for future imports).
-4. Review — activities that already exist are flagged as duplicates — and import.
+4. Review and import. Activities that already exist are flagged as duplicates. Above the
+   list, a check shows the cash balance after the import next to the broker's balance from
+   the file, warns about cash left on the securities account or negative holdings, and the
+   **Holdings** tab lists the resulting positions — compare them with your broker app.
 
 ## Supported transactions
 

@@ -12,13 +12,13 @@ pnpm build                # Build to dist/addon.js
 pnpm bundle               # Build + create ZIP for local Wealthfolio installation testing
 ```
 
-The mapping logic lives in the per-broker transformers — `src/transform.ts` (Trade Republic) and `src/scalable.ts` (Scalable Capital) — with shared helpers in `src/common.ts` and format detection in `src/formats.ts`. Tests live next to them (`src/transform.test.ts`, `src/scalable.test.ts`, `src/updateCheck.test.ts`) with CSV fixtures in `src/__fixtures__/`. Start with the transformer of the broker you are changing; `docs/ARCHITECTURE.md` explains the whole flow, invariants and change recipes (incl. adding a new broker, section 12.6).
+The mapping logic lives in the per-broker transformers — `src/transform.ts` (Trade Republic) and `src/scalable.ts` (Scalable Capital) — with shared helpers in `src/common.ts` and format detection in `src/formats.ts`. Tests live next to them (`src/transform.test.ts`, `src/scalable.test.ts`, `src/reconcile.test.ts`, `src/updateCheck.test.ts`) with CSV fixtures in `src/__fixtures__/`. Start with the transformer of the broker you are changing; `docs/ARCHITECTURE.md` explains the whole flow, invariants and change recipes (incl. adding a new broker, section 12.6).
 
 ## Stack
 
 - **Runtime / package manager**: Node 24, pnpm 11 (versions pinned in `.tool-versions`)
 - **Build**: Vite 8 — outputs a single `dist/addon.js` (ES module, no zip)
-- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic), `src/scalable.test.ts` (Scalable Capital, format detection, `tradeFinalCash`) and `src/updateCheck.test.ts` (update check) + CSV fixtures in `src/__fixtures__/`
+- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic), `src/scalable.test.ts` (Scalable Capital, format detection, `tradeFinalCash`) `src/reconcile.test.ts` (pre-import reconciliation) and `src/updateCheck.test.ts` (update check) + CSV fixtures in `src/__fixtures__/`
 - **Type checking**: `tsc --noEmit`
 
 ## Key files
@@ -32,6 +32,7 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 | `src/transform.test.ts` | Trade Republic tests (unit + fixture integration) |
 | `src/scalable.test.ts` | Scalable Capital tests (unit + fixture integration), format detection, `tradeFinalCash` |
 | `src/updateCheck.test.ts` | Update check: version comparison, GitHub response parsing, caching, silent failures |
+| `src/reconcile.ts` / `src/reconcile.test.ts` | Pre-import check shown in the review step: cash balance vs. the broker's balance from the file (`trBrokerCash` / `scalableBrokerCash`), cash left on the securities account, holdings. `cashEffect()` mirrors Wealthfolio's cash rules — extend it with every new activity type or subtype |
 | `src/__fixtures__/tr-sample.csv` | 26-row fixture covering every supported Trade Republic transaction type |
 | `src/__fixtures__/scalable-sample.csv` | 26-row fabricated Scalable fixture (BOM, CRLF, `;`, decimal comma) covering every supported Scalable type |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |

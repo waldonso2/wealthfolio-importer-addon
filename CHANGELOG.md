@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.7.0] - 2026-10-06
+
+### Added
+
+- Pre-import check in the review step, computed from the file before anything is imported:
+  - Cash balance after the import, compared with the broker's own balance in the file (Trade Republic: amount + fee + tax of every row; Scalable Capital: "Wert" of every row with a type). A difference points to the rows listed as *Not imported*.
+  - A warning if cash would be left on the securities account, or if a holding goes negative. Either points to missing or mis-mapped rows.
+  - A new **Holdings** tab with the resulting positions, to compare with the broker app.
+
 ## [2.6.0] - 2026-10-05
 
 ### Changed

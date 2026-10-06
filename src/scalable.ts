@@ -101,6 +101,13 @@ const COLUMNS = [
   "Notiz",
 ] as const;
 
+// Scalable Capital's own cash balance as the export shows it: the sum of
+// "Wert" over all rows with a type. Rows without a type are security transfers;
+// their "Wert" is a market value, not cash. Used to check the import (#10).
+export function scalableBrokerCash(rows: ScRow[]): number {
+  return rows.reduce((sum, r) => sum + ((r.Typ ?? "").trim() ? deNum(r.Wert) : 0), 0);
+}
+
 export function transformScalable(input: ScRow[], config: AddonSettings): TransformResult {
   // Short rows from the CSV parser leave columns undefined; normalise to "".
   const rows: ScRow[] = input.map((r) => {
