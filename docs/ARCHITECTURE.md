@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.6.0 (`manifest.json` / `package.json`).
+> Stand: Version 2.7.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -109,10 +109,12 @@ src/
 ├── SettingsPage.tsx        Einstellungen: Konten, Transfer-Patterns, Security-Mappings
 ├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets)
 ├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[] (inkl. Vorlauf planSpecialRows)
+├── reconcile.ts            Abgleich vor dem Import: Cash-Saldo, Bargeld im Depot, Bestände (6.5)
 ├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, SkippedRow/SkipKind, …)
 ├── transform.test.ts       Unit- und Fixture-Tests für transform() (73 Tests)
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (31 Tests)
 ├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
+├── reconcile.test.ts       Tests für den Abgleich, inkl. beider Fixtures (9 Tests)
 └── __fixtures__/
     ├── tr-sample.csv       26 Zeilen, deckt alle unterstützten TR-Typen ab
     └── scalable-sample.csv 26 erfundene Zeilen im Scalable-Format (Abschnitt 14)
@@ -144,13 +146,15 @@ flowchart TD
     TEST2[scalable.test.ts] --> SC
     TEST2 --> FO
     TEST2 --> FIX2[__fixtures__/scalable-sample.csv]
+    IP --> RC[reconcile.ts]
+    RC --> CM
 ```
 
 ### Schichten
 
 | Schicht | Dateien | Regeln |
 |---|---|---|
-| **Domänenlogik** | `transform.ts`, `scalable.ts`, `common.ts`, `formats.ts`, `types.ts` | Rein, synchron, kein React, kein `ctx`. Vollständig unit-testbar. `formats.ts` ist die einzige Stelle, die CSV parst. |
+| **Domänenlogik** | `transform.ts`, `scalable.ts`, `common.ts`, `formats.ts`, `reconcile.ts`, `types.ts` | Rein, synchron, kein React, kein `ctx`. Vollständig unit-testbar. `formats.ts` ist die einzige Stelle, die CSV parst. |
 | **Persistenz** | `settings.ts` | Einzige Stelle, die `ctx.api.secrets` nutzt. |
 | **Orchestrierung + UI** | `ImportPage.tsx` | Ruft `parseAndTransform()`, SDK-APIs, steuert den Wizard. Enthält noch Logik (Mapping-Anwendung, Import-Schleife). |
 | **Update-Hinweis** | `updateCheck.ts`, `UpdateBanner.tsx` | Einzige Stelle mit Netzwerkzugriff (`ctx.api.network`) und Addon-Speicher (`ctx.api.storage`), siehe 4.2. |
@@ -505,6 +509,9 @@ sequenceDiagram
    Transformers mit Spalte **Status** („Not imported“ rot und oben, „No action needed“)
    und dem `hint` unter der Begründung; die Kopfzeile zählt „not imported“ und „netted
    out“ getrennt.
+   Darüber steht seit 2.7.0 der **Abgleich** (6.5) mit Cash-Saldo, Bargeld auf dem
+   Portfolio-Konto und Anzahl der Positionen; der Reiter **„Holdings“** listet die
+   Bestände.
 8. **Import (`handleImport`)**: sequenziell, eine Aktivität pro SDK-Aufruf:
    - Duplikat → `ctx.api.activities.update({ id: duplicateOfId, … })`
    - sonst → `ctx.api.activities.create({ … })`
@@ -562,6 +569,35 @@ Folgen für das Addon:
   Ebenso 2.6.0: Steuer in `tax` statt in `fee` bzw. als eigene Zeile ändert `fee` bei
   Verkäufen mit Steuer und `amount` (netto statt brutto) bei Dividenden und Zinsen mit
   Steuer.
+
+---
+
+### 6.5 Abgleich vor dem Import (`reconcile.ts`, seit 2.7.0)
+
+Der Review-Schritt zeigt, wie die beiden Konten des Brokers nach dem Import aussehen –
+allein aus dem Transformer-Ergebnis, bevor etwas in Wealthfolio landet:
+
+| Anzeige | Berechnung | Erwartung |
+|---|---|---|
+| Cash-Konto nach Import | Summe von `cashEffect()` aller Aktivitäten auf dem Cash-Konto, je Währung | = Broker-Saldo laut Datei |
+| Broker-Saldo laut Datei | TR: Summe `amount + fee + tax` aller Zeilen (`trBrokerCash`); Scalable: Summe `Wert` aller Zeilen **mit** Typ (`scalableBrokerCash` – Zeilen ohne Typ sind Wertpapierüberträge mit Marktwert) | – |
+| Bargeld auf dem Portfolio-Konto | `cashEffect()` der Aktivitäten auf dem Portfolio-Konto, je Währung | keins (5.5 Nr. 10) |
+| Bestände („Holdings“) | Stück je Symbol in Datumsfolge: `BUY`/`TRANSFER_IN`/`DIVIDEND_IN_KIND` +, `SELL`/`TRANSFER_OUT` −, `SPLIT` × Verhältnis | kein Bestand unter 0 |
+
+`cashEffect()` folgt Wealthfolio: `amount` ist der Geldfluss; `DEPOSIT`, `DIVIDEND`,
+`INTEREST`, `CREDIT`, `SELL` und Cash-`TRANSFER_IN` erhöhen, `WITHDRAWAL`, `BUY`, `FEE`,
+`TAX` und Cash-`TRANSFER_OUT` senken; Wertpapier-Überträge, `SPLIT` und
+`DIVIDEND_IN_KIND` bewegen kein Bargeld.
+
+Weicht das Cash-Konto vom Broker-Saldo ab, verweist die Anzeige auf die „Not
+imported“-Zeilen unter „Skipped“ – in den Fixtures z. B. die absichtlich unbekannte
+Scalable-Zeile (1 €). Die Bestände nutzen die ISINs aus der Datei, nicht die gemappten
+Ticker. Ausgeschlossene Duplikate ändern nichts an der Berechnung: Sie existieren schon in
+Wealthfolio. Der Abgleich gilt nur für den Inhalt der Datei; ohne vollständige Historie
+weicht er vom Broker ab, darauf weist die Anzeige hin.
+
+**Neue Aktivitätstypen:** `cashEffect()` und die Bestandsregeln in `reconcile()`
+mitpflegen, sonst zeigt der Abgleich falsche Abweichungen.
 
 ---
 
@@ -646,7 +682,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 112 Tests in drei Dateien; die UI (`*.tsx`) ist nicht getestet.
+- 121 Tests in vier Dateien; die UI (`*.tsx`) ist nicht getestet.
 - **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
@@ -657,6 +693,10 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
   Formaterkennung, `tradeFinalCash`, Fixture-Test mit
   `src/__fixtures__/scalable-sample.csv` (26 Zeilen → 33 Aktivitäten + 9 skipped,
   Endbestände). Die Tests laufen unabhängig von der Zeitzone des Rechners.
+- **`src/reconcile.test.ts`** (9 Tests): `cashEffect`, Cash-Saldo, Bargeld im Depot,
+  Bestände mit Split/Dividende in Aktien/Wechsel, negative Bestände; Abgleich beider
+  Fixtures gegen den Broker-Saldo aus der Datei (TR: Differenz 0; Scalable: −1 € durch
+  die absichtlich nicht unterstützte Zeile).
 - **`src/updateCheck.test.ts`** (8 Tests): Versionsvergleich, Auswertung der GitHub-Antwort,
   Cache (frisch/abgelaufen), Verhalten bei blockierter oder fehlerhafter Anfrage – mit
   einem nachgebauten `ctx`.
@@ -700,9 +740,9 @@ keine Release-Notes.
    (5.5 Nr. 10); Kommentare bestehender Typen nicht ändern (5.5 Nr. 8).
 7. Was nicht importiert wird, mit `kind` und – bei `missing` – `hint` melden (5.5 Nr. 6).
 8. Unit-Test in `transform.test.ts` + Zeile in `tr-sample.csv`, Fixture-Zähler anpassen.
-   Mit einem echten Export prüfen, dass das Cash-Konto auf den TR-Saldo kommt (Summe aus
-   `amount + fee + tax` aller Zeilen) und das Portfolio-Konto kein Bargeld hält –
-   der Export selbst kommt nicht ins Repo.
+   Neuer Aktivitätstyp oder Untertyp? `cashEffect()`/`reconcile()` mitpflegen (6.5).
+   Mit einem echten Export prüfen: Der Abgleich im Review-Schritt zeigt keine Differenz
+   zum Broker-Saldo und kein Bargeld im Depot – der Export selbst kommt nicht ins Repo.
 9. Versions-Bump (meist *minor*) + CHANGELOG.
 
 ### 12.2 Neues Einstellungsfeld
@@ -1000,6 +1040,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.4.0 | Fix (Datenänderung) | Dividenden in Fremdwährung werden in der Auszahlungswährung (EUR) gebucht statt in USD/ZAR mit `fxRate` – vorher blieben USD-/ZAR-Guthaben und ein EUR-Minus auf dem Portfolio-Konto. Negative Dividenden (Stornos) werden verrechnet bzw. übersprungen statt als positive Dividende gebucht. **Bereits importierte Fremdwährungs-Dividenden gelten nicht mehr als Duplikat** und müssen vor dem Neuimport gelöscht werden. | `transform.ts` | 5.4, 5.5 Nr. 10 |
 | 2.5.0 | Feature | TR-Kapitalmaßnahmen Stufe 3: `SPLIT` als Wealthfolio-`SPLIT` (Verhältnis aus dem Bestand der Datei), `STOCK_DIVIDEND` als `DIVIDEND`/`DIVIDEND_IN_KIND` (+n/−n-Umbuchung verrechnet), `DIVIDEND_REINVESTMENT` mit seiner negativen Dividendenzeile als vom Cash-Konto finanzierter `BUY`. Übersprungene Zeilen tragen `kind` (`netted`/`missing`) und `hint`; die UI zeigt Status und Hinweis. Vorlauf `mapCorporateActions` + `dividendCorrections` → `planSpecialRows`. | `transform.ts`, `scalable.ts`, `types.ts`, `ImportPage.tsx` | 5.4, 5.5 Nr. 6, 16.3 |
 | 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
+| 2.7.0 | Feature | **Abgleich vor dem Import** (#10): Cash-Saldo nach Import im Vergleich zum Broker-Saldo aus der Datei, Warnung bei Bargeld auf dem Portfolio-Konto und negativen Beständen, Reiter „Holdings“. `parseAndTransform` liefert `brokerCash`. | `reconcile.ts`, `formats.ts`, `transform.ts`, `scalable.ts`, `ImportPage.tsx` | 6.2, 6.5 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).
