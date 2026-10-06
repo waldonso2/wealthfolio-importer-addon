@@ -1,13 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  Account,
-  ActivityCreate,
-  ActivityImport,
-  ActivityUpdate,
-  AddonContext,
-  ImportActivitiesResult,
-  QuoteMode,
-} from "@wealthfolio/addon-sdk";
+import type { Account, ActivityImport, AddonContext } from "@wealthfolio/addon-sdk";
 import {
   Button,
   Card,
@@ -24,8 +16,18 @@ import { SecurityMappingStep } from "./SecurityMappingStep";
 import type { SecurityInfo, SecurityMapping } from "./SecurityMappingStep";
 import { isCashSymbol } from "./common";
 import { FORMAT_LABEL, formatAccounts, isFormatConfigured, parseAndTransform, type ImportFormat } from "./formats";
+import {
+  activityStatus,
+  applySecurityMappings,
+  failedAsCsv,
+  firstError,
+  groupIdsByLine,
+  runImport,
+  selectCandidates,
+  type FailedActivity,
+} from "./importer";
 import { cashDifference, reconcile, type Reconciliation } from "./reconcile";
-import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult } from "./types";
+import type { AddonSettings, SkippedRow, TransformResult } from "./types";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -38,23 +40,6 @@ function truncate(s: string | null | undefined, n = 60): string {
   return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
-function activityStatus(a: ActivityImport): "valid" | "duplicate" | "error" {
-  // Only flag as duplicate if it already exists in the DB (duplicateOfId).
-  // duplicateOfLineNumber means checkImport found a similar row elsewhere in the same
-  // batch — for our transform this is always a false positive (e.g. TRANSFER_OUT +
-  // TRANSFER_IN generated from one CSV row have the same amount and near-identical
-  // timestamps). We still pass forceImport:true for those during import.
-  if (a.duplicateOfId) return "duplicate";
-  if (!a.isValid || (a.errors && Object.keys(a.errors).length > 0)) return "error";
-  return "valid";
-}
-
-function firstError(a: ActivityImport): string {
-  if (!a.errors) return "";
-  const msgs = Object.values(a.errors).flat();
-  return msgs[0] ?? "";
-}
-
 function displayAmount(a: ActivityImport): string {
   const ccy = a.currency ?? "EUR";
   if (a.amount != null && a.amount !== "") return `${Number(a.amount).toFixed(2)} ${ccy}`;
@@ -62,38 +47,6 @@ function displayAmount(a: ActivityImport): string {
     return `${(parseFloat(String(a.quantity)) * parseFloat(String(a.unitPrice))).toFixed(2)} ${ccy}`;
   }
   return "—";
-}
-
-// Applies resolved ISIN -> ticker mappings to the transform() output, turning
-// the placeholder ISIN symbol into the real (or custom) asset fields.
-function applySecurityMappings(
-  activities: ActivityImportEx[],
-  resolvedMappings: Map<string, SecurityMapping>,
-): ActivityImportEx[] {
-  // "custom" keeps the ISIN as the symbol. Wealthfolio rejects an equity that has
-  // no market data (e.g. delisted) unless it is manually quoted. Funds pass that
-  // check, and a requested quote mode also switches an existing asset, so only
-  // equities are marked MANUAL - decided per ISIN, because rows like DIVIDEND
-  // carry no instrumentType of their own.
-  const equityIsins = new Set(activities.filter((a) => a.instrumentType === "EQUITY").map((a) => a.symbol));
-  return activities.map((a) => {
-    if (!a.symbol || isCashSymbol(a.symbol)) return a;
-    const m = resolvedMappings.get(a.symbol);
-    if (!m) return a;
-    if (m === "custom") return equityIsins.has(a.symbol) ? { ...a, quoteMode: "MANUAL" } : a;
-    return {
-      ...a,
-      symbol: m.canonicalSymbol || m.symbol,
-      symbolName: m.shortName,
-      exchangeMic: m.canonicalExchangeMic || m.exchangeMic,
-      quoteCcy: m.currency || a.quoteCcy,
-      instrumentType:
-        m.quoteType === "EQUITY" ? "EQUITY" : m.quoteType === "ETF" ? "FUND" : a.instrumentType,
-      providerId: m.providerId,
-      providerSymbol: m.providerSymbol,
-      assetId: m.existingAssetId,
-    };
-  });
 }
 
 // ─── UploadZone ─────────────────────────────────────────────────────────────
@@ -182,6 +135,47 @@ function SkippedTable({ rows }: { rows: SkippedRow[] }) {
                 <span className="text-muted-foreground">{r.reason}</span>
                 {r.hint && <span className="mt-0.5 block">{r.hint}</span>}
               </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── Import outcome (#11) ───────────────────────────────────────────────────
+
+interface ImportOutcome {
+  total: number;
+  imported: number;
+  userSkipped: number;
+  failed: FailedActivity[];
+  // Kept so a retry sends the failed activities with their sourceGroupId.
+  groupIdByLine: Map<number, string>;
+}
+
+function FailedTable({ failed, accountName }: { failed: FailedActivity[]; accountName: (id: string) => string }) {
+  return (
+    <div className="max-h-96 overflow-auto">
+      <table className="w-full text-xs">
+        <thead className="bg-background sticky top-0 border-b">
+          <tr>
+            {["Date", "Account", "Type", "Symbol", "Amount", "Error"].map((h) => (
+              <th key={h} className="text-muted-foreground px-2 py-1.5 text-left font-medium">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {failed.map(({ activity: a, error }, i) => (
+            <tr key={i} className="border-border/50 border-b align-top">
+              <td className="whitespace-nowrap px-2 py-1 font-mono">{fmtDate(String(a.date))}</td>
+              <td className="whitespace-nowrap px-2 py-1">{accountName(a.accountId ?? "")}</td>
+              <td className="whitespace-nowrap px-2 py-1 font-mono">{a.activityType}</td>
+              <td className="px-2 py-1 font-mono">{isCashSymbol(a.symbol) ? "" : a.symbol}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-right font-mono">{displayAmount(a)}</td>
+              <td className="text-destructive px-2 py-1">{error}</td>
             </tr>
           ))}
         </tbody>
@@ -363,7 +357,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   const [fileError, setFileError] = useState("");
   const [checkError, setCheckError] = useState("");
   const [importProgress, setImportProgress] = useState(0);
-  const [importResult, setImportResult] = useState<ImportActivitiesResult | null>(null);
+  const [importResult, setImportResult] = useState<ImportOutcome | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     Promise.all([loadSettings(ctx), ctx.api.accounts.getAll()]).then(([s, accs]) => {
@@ -518,128 +513,58 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
 
   // ── Import ────────────────────────────────────────────────────────────────
 
+  const refreshPortfolio = useCallback(async () => {
+    try {
+      await ctx.api.portfolio.update();
+      ctx.api.query.invalidateQueries([]);
+    } catch {
+      // non-critical
+    }
+  }, [ctx]);
+
   const handleImport = useCallback(async () => {
     if (!checked) return;
-
-    // checkImport round-trips through the backend, which drops our custom
-    // transferGroupId (ActivityImport has no such field) — so re-derive the
-    // lineNumber -> transferGroupId mapping from the pre-checkImport transform
-    // output, since lineNumber does survive checkImport.
-    const groupIdByLine = new Map<number, string>();
-    for (const a of parseResult?.activities ?? []) {
-      if (a.transferGroupId && a.lineNumber != null) groupIdByLine.set(a.lineNumber, a.transferGroupId);
-    }
-
-    const dups = checked.filter((a) => activityStatus(a) === "duplicate");
-    const userSkippedCount = dups.filter(
-      (a) => a.lineNumber != null && excludedLines.has(a.lineNumber),
-    ).length;
-
-    const candidates = checked.filter((a) => {
-      if (activityStatus(a) === "error") return false;
-      // Duplicates are included by default; only skip if user explicitly excluded them.
-      if (a.lineNumber != null && excludedLines.has(a.lineNumber)) return false;
-      return true;
-    });
+    const groupIdByLine = groupIdsByLine(parseResult?.activities ?? []);
+    const { candidates, userSkipped } = selectCandidates(checked, excludedLines);
 
     setImportProgress(0);
     setStep("importing");
-
-    let importedCount = 0;
-    let skippedCount = 0;
     try {
-      for (let i = 0; i < candidates.length; i++) {
-        const a = candidates[i];
-        const sourceGroupId = a.lineNumber != null ? groupIdByLine.get(a.lineNumber) : undefined;
-        const assetInput =
-          a.symbol || a.assetId
-            ? {
-                id: a.assetId,
-                symbol: a.symbol,
-                name: a.symbolName,
-                exchangeMic: a.exchangeMic,
-                quoteCcy: a.quoteCcy,
-                instrumentType: a.instrumentType,
-                quoteMode: a.quoteMode as QuoteMode | undefined,
-                providerId: a.providerId,
-                providerSymbol: a.providerSymbol,
-              }
-            : undefined;
-
-        try {
-          if (activityStatus(a) === "duplicate" && a.duplicateOfId) {
-            // Activity already exists — update it so re-imports succeed without duplicating.
-            const upd: ActivityUpdate = {
-              id: a.duplicateOfId,
-              accountId: a.accountId,
-              activityType: a.activityType,
-              subtype: a.subtype,
-              activityDate: a.date as string,
-              currency: a.currency,
-              quantity: a.quantity,
-              unitPrice: a.unitPrice,
-              amount: a.amount,
-              fee: a.fee,
-              tax: a.tax,
-              fxRate: a.fxRate,
-              comment: a.comment,
-              asset: assetInput,
-              sourceGroupId,
-            };
-            await ctx.api.activities.update(upd);
-          } else {
-            const cre: ActivityCreate = {
-              accountId: a.accountId,
-              activityType: a.activityType,
-              subtype: a.subtype,
-              activityDate: a.date as string,
-              currency: a.currency,
-              quantity: a.quantity,
-              unitPrice: a.unitPrice,
-              amount: a.amount,
-              fee: a.fee,
-              tax: a.tax,
-              fxRate: a.fxRate,
-              comment: a.comment,
-              asset: assetInput,
-              sourceGroupId,
-            };
-            await ctx.api.activities.create(cre);
-          }
-          importedCount++;
-        } catch {
-          skippedCount++;
-        }
-        setImportProgress(Math.round(((i + 1) / candidates.length) * 95) + 2);
-      }
+      const run = await runImport(ctx.api.activities, candidates, groupIdByLine, (done, total) =>
+        setImportProgress(Math.round((done / total) * 95) + 2),
+      );
       setImportProgress(100);
-
-      const syntheticResult: ImportActivitiesResult = {
-        activities: candidates,
-        importRunId: "",
-        summary: {
-          total: candidates.length + userSkippedCount,
-          imported: importedCount,
-          skipped: skippedCount,
-          duplicates: userSkippedCount,
-          assetsCreated: 0,
-          success: skippedCount === 0,
-        },
-      };
-      setImportResult(syntheticResult);
+      setImportResult({
+        total: candidates.length + userSkipped,
+        imported: run.imported,
+        userSkipped,
+        failed: run.failed,
+        groupIdByLine,
+      });
       setStep("done");
-
-      try {
-        await ctx.api.portfolio.update();
-        ctx.api.query.invalidateQueries([]);
-      } catch {
-        // non-critical
-      }
+      await refreshPortfolio();
     } catch (e) {
       setCheckError(String(e));
       setStep("confirm");
     }
-  }, [checked, excludedLines, ctx, parseResult]);
+  }, [checked, excludedLines, ctx, parseResult, refreshPortfolio]);
+
+  // Sends only the activities that failed, with their original sourceGroupId.
+  const retryFailed = useCallback(async () => {
+    if (!importResult || importResult.failed.length === 0) return;
+    setRetrying(true);
+    try {
+      const run = await runImport(
+        ctx.api.activities,
+        importResult.failed.map((f) => f.activity),
+        importResult.groupIdByLine,
+      );
+      setImportResult({ ...importResult, imported: importResult.imported + run.imported, failed: run.failed });
+      if (run.imported > 0) await refreshPortfolio();
+    } finally {
+      setRetrying(false);
+    }
+  }, [ctx, importResult, refreshPortfolio]);
 
   // ── Reset ─────────────────────────────────────────────────────────────────
 
@@ -933,25 +858,21 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   // ── Done ─────────────────────────────────────────────────────────────────
 
   if (step === "done" && importResult) {
-    const { summary } = importResult;
-    const hasIssues = !summary.success || (summary.skipped ?? 0) > 0;
+    const { total, imported, userSkipped, failed } = importResult;
+    const ok = failed.length === 0;
 
     return (
-      <div className="max-w-2xl space-y-4 p-6">
+      <div className="max-w-4xl space-y-4 p-6">
         {/* Header */}
         <div className="flex items-center gap-3">
-          {summary.success ? (
+          {ok ? (
             <Icons.CheckCircle className="h-8 w-8 shrink-0 text-green-600" />
           ) : (
             <Icons.AlertCircle className="text-destructive h-8 w-8 shrink-0" />
           )}
           <div>
-            <h1 className="text-2xl font-semibold">
-              {summary.success ? "Import complete" : "Import finished with issues"}
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              {summary.imported} activities imported successfully.
-            </p>
+            <h1 className="text-2xl font-semibold">{ok ? "Import complete" : "Import finished with issues"}</h1>
+            <p className="text-muted-foreground text-sm">{imported} activities imported successfully.</p>
           </div>
         </div>
 
@@ -959,41 +880,54 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         <div className="grid grid-cols-4 gap-3">
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold">{summary.total}</p>
+              <p className="text-2xl font-bold">{total}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">Total</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-2xl font-bold text-green-600">{summary.imported}</p>
+              <p className="text-2xl font-bold text-green-600">{imported}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">Imported</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p className="text-muted-foreground text-2xl font-bold">
-                {summary.duplicates ?? 0}
-              </p>
+              <p className="text-muted-foreground text-2xl font-bold">{userSkipped}</p>
               <p className="text-muted-foreground mt-0.5 text-xs">Manually skipped</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
-              <p
-                className={`text-2xl font-bold ${(summary.skipped ?? 0) > 0 ? "text-muted-foreground" : "text-muted-foreground"}`}
-              >
-                {summary.skipped ?? 0}
-              </p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Skipped</p>
+              <p className={`text-2xl font-bold ${ok ? "text-muted-foreground" : "text-destructive"}`}>{failed.length}</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">Failed</p>
             </CardContent>
           </Card>
         </div>
 
-        {hasIssues && (
-          <p className="text-muted-foreground text-sm">
-            {summary.skipped ?? 0} activit{(summary.skipped ?? 0) === 1 ? "y" : "ies"} could not
-            be saved. They may already exist or contain invalid data.
-          </p>
+        {!ok && (
+          <Card>
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm">
+                  {failed.length} activit{failed.length === 1 ? "y" : "ies"} could not be saved. Wealthfolio's reason is
+                  shown per row; fix the cause (e.g. the security mapping) and retry, or add them manually.
+                </p>
+                <Button onClick={() => void retryFailed()} disabled={retrying} className="shrink-0">
+                  {retrying ? "Retrying…" : `Retry ${failed.length} failed`}
+                </Button>
+              </div>
+              <FailedTable failed={failed} accountName={accountName} />
+              <details>
+                <summary className="text-muted-foreground cursor-pointer text-xs">Copy as CSV</summary>
+                <textarea
+                  readOnly
+                  className="bg-muted mt-2 h-32 w-full rounded p-2 font-mono text-xs"
+                  value={failedAsCsv(failed, accountName)}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              </details>
+            </CardContent>
+          </Card>
         )}
 
         <Button variant="outline" onClick={reset}>
