@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 2.11.0 (`manifest.json` / `package.json`).
+> Stand: Version 3.9.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -236,8 +236,8 @@ müssen neu eingerichtet werden, weil `secrets` an die `id` gebunden sind.
 - Update-Prüfung und -Installation laufen **nur** über den Wealthfolio-Store
   (`https://wealthfolio.app/api/addons/update-check?addonId=…`). Eine eigene
   Update-Adresse kann ein Addon nicht angeben, und es kann sich nicht selbst ersetzen.
-  Dieses Addon ist dort nicht gelistet; Aufnahme laut Wealthfolio-Doku über
-  support@wealthfolio.app.
+  Dieser Store führt nur offizielle Addons; Community-Addons (Verzeichnis, #32 und 11)
+  bekommen weder In-App-Installation noch In-App-Updates.
 - **„Install from File"** ersetzt nur den Ordner `addons/<id>/` (mit Sicherung während des
   Austauschs). Ein Addon mit gleicher `id` wird überschrieben, Deinstallieren ist nicht nötig.
 - Die **Einstellungen** liegen im Schlüsselbund des Betriebssystems unter
@@ -779,8 +779,27 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 | Workflow | Trigger | Schritte |
 |---|---|---|
-| `ci.yml` | PR auf `main` (außer Label `skip-ci`) | install → `type-check` → `test` → `build` |
-| `release.yml` | Push auf `main` (außer `[skip-release]` in Commit-Message) | install → `type-check` → `test` → `bundle` → falls Tag `v<manifest.version>` fehlt: GitHub-Release mit CHANGELOG-Abschnitt, ZIP und `addon.js` |
+| `ci.yml` | PR auf `main` (außer Label `skip-ci`) | install → `check:versions` → `type-check` → `test` → `build` |
+| `release.yml` | Push auf `main` (außer `[skip-release]` in Commit-Message) | install → `check:versions` → `type-check` → `test` → `bundle` → falls Tag `v<manifest.version>` fehlt: GitHub-Release mit CHANGELOG-Abschnitt, ZIP und `addon.js` |
+| `sdk-watch.yml` | wöchentlich (Mo 06:17 UTC) und manuell | vergleicht `@wealthfolio/addon-sdk` auf npm mit der eigenen Versionslinie; bei neuer Linie ein Issue „Release on Wealthfolio X.Y“ (nur eins je Linie) |
+
+**Versionsschema (seit 3.9.0):** Die Version folgt Wealthfolio. `major.minor` ist die
+Wealthfolio-/SDK-Linie, für die gebaut wird, der Patch zählt unsere Releases auf dieser
+Linie (`3.9.0`, `3.9.1`, …) – Features und Fixes erhöhen beide den Patch, der CHANGELOG sagt
+was es ist. `sdkVersion` und `minWealthfolioVersion` sind `<Linie>.0`, alle
+`@wealthfolio/*`-Abhängigkeiten (package.json und Manifest `hostDependencies`)
+`^<Linie>.0`; `scripts/check-versions.mjs` (`pnpm check:versions`) prüft das. Eine neue
+Wealthfolio-Linie heißt: alles zusammen auf `<Linie>.0` heben, SDK-Changelog auf genutzte
+APIs prüfen, releasen – auch ohne andere Änderungen. Dependabot lässt Minor/Major von
+`@wealthfolio/*` aus (`dependabot.yml`), damit nichts außerhalb der Linie landet. Der
+Sprung von 2.11.0 auf 3.9.0 ist nur eine Umnummerierung; Tags und Update-Hinweis
+(`updateCheck.ts` vergleicht numerisch) funktionieren ohne Sonderfall.
+
+**Community-Verzeichnis:** Gelistet über `community/directory/broker-importer/addon.store.json`
+im Repo `wealthfolio/wealthfolio-addons` (#32). Wealthfolio liest Lizenz, Kompatibilität
+(`sdkVersion`, mindestens 3.6) und Datenzugriff (`network.allowedHosts`) aus diesem Repo;
+die Listing-`id` muss der Manifest-`id` `broker-importer` entsprechen. Kein In-App-Install
+und keine In-App-Updates für Community-Addons – der Update-Hinweis (4.2) bleibt nötig.
 
 **Release-Gate:** Ein Release entsteht nur durch Versions-Bump. Bei Logikänderungen
 (`src/`, Manifest-Berechtigungen/Metadaten) Version in **`manifest.json` und
@@ -1114,9 +1133,10 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.6.0 | Änderung (Datenänderung) | TR: Gebühr und Steuer in eigenen Feldern (`fee`, `tax`). SELL/BUY: Steuer nicht mehr in `fee`; Steuererstattung als `CREDIT`/`TAX_REFUND`. DIVIDEND (inkl. Ausschüttung) und INTEREST: **eine** Aktivität mit Nettobetrag und `tax` statt Brutto-Aktivität plus `TAX`-Zeile. `handleImport` reicht `tax` an Wealthfolio weiter. **Bereits importierte Verkäufe mit Steuer, Dividenden und Zinsen mit Steuer gelten nicht mehr als Duplikat** – vor dem Neuimport löschen. | `common.ts`, `transform.ts`, `ImportPage.tsx` | 5.3, 5.4, 6.2, 6.4 |
 | 2.7.0 | Feature | **Abgleich vor dem Import** (#10): Cash-Saldo nach Import im Vergleich zum Broker-Saldo aus der Datei, Warnung bei Bargeld auf dem Portfolio-Konto und negativen Beständen, Reiter „Holdings“. `parseAndTransform` liefert `brokerCash`. | `reconcile.ts`, `formats.ts`, `transform.ts`, `scalable.ts`, `ImportPage.tsx` | 6.2, 6.5 |
 | 2.8.0 | Feature | **Fehlgeschlagene Aktivitäten anzeigen und wiederholen** (#11): Tabelle mit Wealthfolios Fehlermeldung, „Retry N failed“ (behält `sourceGroupId`), CSV zum Kopieren. **Import-Logik in `importer.ts`** ausgelagert (#13 Stufe 1), ohne Verhaltensänderung, mit Tests. | `importer.ts`, `ImportPage.tsx` | 3, 6.2, 6.3, 10, 12.5 |
-| 2.11.0 | Feature + Fix | **Abgleich mit dem Bestand:** Trades und Dividenden, die schon aus der anderen Quelle (CSV ↔ PDF) in Wealthfolio stehen, werden samt Überträgen erkannt und standardmäßig übersprungen (`matchExisting`, neue Berechtigung `activities.getAll`). **Anzeige:** Import-Button und Ergebnisseite zählen bestehende Aktivitäten (Duplikate, die aktualisiert werden) getrennt von neuen: „Import 3 new · update 6 existing“, Kacheln „New“/„Updated“/„Skipped“. | `importer.ts`, `ImportPage.tsx`, `manifest.json` | 6.4, 9 |
-| 2.10.0 | Feature | **PDF-Belege** (#15): beliebig viele Kauf-, Verkaufs- und Dividendenbelege eines Brokers (Trade Republic, Scalable Capital, DKB) pro Import; Broker am Inhalt erkannt, Import in das Kontenpaar des Brokers aus den Einstellungen (neu: DKB-Paar). pdf.js im Hauptthread. | `pdf/*`, `formats.ts`, `types.ts`, `settings.ts`, `ImportPage.tsx`, `SettingsPage.tsx`, `vite.config.ts` | 3, 8.1, 17 |
 | 2.9.0 | Änderung (Datenänderung) | **Scalable an 2.6.0 angeglichen** (#26): Kauf/Verkauf mit `fee` = Gebühren und `tax` = Steuern statt beides in `fee`; negative Steuern als `CREDIT`/`TAX_REFUND`. Dividenden unverändert (Export ohne Steuer). **Bereits importierte Scalable-Verkäufe mit Steuer gelten nicht mehr als Duplikat.** | `scalable.ts` | 13 Nr. 14, 14.3 |
+| 2.10.0 | Feature | **PDF-Belege** (#15): beliebig viele Kauf-, Verkaufs- und Dividendenbelege eines Brokers (Trade Republic, Scalable Capital, DKB) pro Import; Broker am Inhalt erkannt, Import in das Kontenpaar des Brokers aus den Einstellungen (neu: DKB-Paar). pdf.js im Hauptthread. | `pdf/*`, `formats.ts`, `types.ts`, `settings.ts`, `ImportPage.tsx`, `SettingsPage.tsx`, `vite.config.ts` | 3, 8.1, 17 |
+| 2.11.0 | Feature + Fix | **Abgleich mit dem Bestand:** Trades und Dividenden, die schon aus der anderen Quelle (CSV ↔ PDF) in Wealthfolio stehen, werden samt Überträgen erkannt und standardmäßig übersprungen (`matchExisting`, neue Berechtigung `activities.getAll`). **Anzeige:** Import-Button und Ergebnisseite zählen bestehende Aktivitäten (Duplikate, die aktualisiert werden) getrennt von neuen: „Import 3 new · update 6 existing“, Kacheln „New“/„Updated“/„Skipped“. | `importer.ts`, `ImportPage.tsx`, `manifest.json` | 6.4, 9 |
+| 3.9.0 | Pflege | **Version folgt Wealthfolio** (#32): SDK-Familie 3.7 → 3.9, `sdkVersion`/`minWealthfolioVersion` 3.9.0 (vorher 3.6.0), Version 2.11.0 → 3.9.0 (nur Umnummerierung). `pnpm check:versions` in CI/Release, wöchentlicher `sdk-watch.yml`, Dependabot ignoriert `@wealthfolio/*` Minor/Major. README mit Beispieldateien. Vorbereitung der Community-Listung. Keine Verhaltensänderung. | `manifest.json`, `package.json`, `scripts/check-versions.mjs`, `.github/*`, Doku | 11 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).

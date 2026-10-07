@@ -57,7 +57,9 @@ pnpm dev              # vite build --watch
 
 ## Releasing
 
-The release workflow never bumps the version itself — it only creates a GitHub release when `manifest.json`'s version has no matching git tag yet, so a merge to `main` without a version bump runs CI but publishes nothing. This is the deliberate gate for "only release on real changes": whenever a change to this addon touches actual logic (anything under `src/`, `manifest.json` permissions/metadata, transaction-mapping behavior, etc.) rather than just docs/CI/README, **proactively propose a semver bump** (patch/minor/major, with reasoning) before merging — don't wait to be asked. Docs-only or pipeline-only changes should merge without a bump.
+**The version follows Wealthfolio** (since 3.9.0): `major.minor` is the Wealthfolio/SDK line the addon is built for, the patch counts our releases on that line. `sdkVersion` and `minWealthfolioVersion` are `<line>.0`, every `@wealthfolio/*` dependency (package.json and manifest `hostDependencies`) is `^<line>.0`; `pnpm check:versions` (`scripts/check-versions.mjs`, run in CI and release) fails otherwise. A new Wealthfolio line (the weekly `sdk-watch.yml` workflow opens an issue; Dependabot ignores `@wealthfolio/*` minor/major) means bumping all of these to `<line>.0` together and releasing, even without other changes.
+
+The release workflow never bumps the version itself — it only creates a GitHub release when `manifest.json`'s version has no matching git tag yet, so a merge to `main` without a version bump runs CI but publishes nothing. This is the deliberate gate for "only release on real changes": whenever a change to this addon touches actual logic (anything under `src/`, `manifest.json` permissions/metadata, transaction-mapping behavior, etc.) rather than just docs/CI/README, **proactively propose a patch bump** on the current line (say whether it's a feature or a fix) before merging — don't wait to be asked. Docs-only or pipeline-only changes should merge without a bump.
 
 Once a bump is agreed, apply it by bumping the `version` field in **both** `manifest.json` and `package.json`, and add a `CHANGELOG.md` entry, then push/merge to `main`. The release workflow will:
 
@@ -65,7 +67,7 @@ Once a bump is agreed, apply it by bumping the `version` field in **both** `mani
 2. Detect the new version tag doesn't exist yet
 3. Create a GitHub release `v{version}` with the changelog section, `dist/broker-importer-addon.zip` (the installable package), and `dist/addon.js` attached
 
-This addon is not listed in the Wealthfolio store or community registry — end users always install manually from the GitHub release zip (Settings → Add-ons → Install from File), per `README.md`; the in-addon update hint (`src/updateCheck.ts`) points them to new releases.
+The addon is (being) listed in the Wealthfolio community directory (`wealthfolio/wealthfolio-addons`, `community/directory/broker-importer/addon.store.json`, #32). That listing is a link only: users always install manually from the GitHub release zip (Settings → Add-ons → Install from File), per `README.md`, and Wealthfolio doesn't update community addons — the in-addon update hint (`src/updateCheck.ts`) points them to new releases. The listing's compatibility, licence and data handling are derived from this repo's `manifest.json` and LICENSE, so keep the manifest `id` (`broker-importer`), `sdkVersion` and `network.allowedHosts` accurate.
 
 ## Two-account model
 
