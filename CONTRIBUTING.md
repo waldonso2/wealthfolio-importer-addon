@@ -13,7 +13,11 @@ Fabricate the ISINs/amounts/descriptions (no personal data), but keep the real c
 
 ## Versioning
 
-Changes touching `src/`, `manifest.json` permissions/metadata, or transaction-mapping behavior should bump the version in both `manifest.json` and `package.json`, with a matching `CHANGELOG.md` entry — the release workflow only cuts a GitHub release when `manifest.json`'s version has no matching git tag yet. Docs-only or CI-only changes don't need a bump.
+The version follows Wealthfolio: `major.minor` is the Wealthfolio/SDK line the addon is built for (e.g. `3.9`), the patch counts our releases on that line (`3.9.0`, `3.9.1`, …). Features and fixes both bump the patch; the `CHANGELOG.md` entry says which it is. `sdkVersion` and `minWealthfolioVersion` in `manifest.json` are `<line>.0`, and every `@wealthfolio/*` dependency is `^<line>.0` — `pnpm check:versions` (run in CI and before each release) enforces this.
+
+Changes touching `src/`, `manifest.json` permissions/metadata, or transaction-mapping behavior should bump the patch in both `manifest.json` and `package.json`, with a matching `CHANGELOG.md` entry — the release workflow only cuts a GitHub release when `manifest.json`'s version has no matching git tag yet. Docs-only or CI-only changes don't need a bump.
+
+When Wealthfolio publishes a new SDK line, the weekly **Wealthfolio SDK watch** workflow opens an issue. Bump the SDK family, `sdkVersion`, `minWealthfolioVersion` and the version to `<line>.0` together, check the SDK changelog for APIs the addon uses, and release — even when nothing else changed. Dependabot leaves the `@wealthfolio/*` packages to that workflow.
 
 If a commit shouldn't trigger the release workflow at all (e.g. a docs/CI change landing straight on `main`), include `[skip-release]` in the commit message. To skip CI checks on a PR (rare — e.g. a pure docs PR), apply the `skip-ci` label instead.
 

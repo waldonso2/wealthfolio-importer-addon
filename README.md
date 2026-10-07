@@ -8,14 +8,18 @@ transfers between them so balances and spending stay correct.
 
 ## Install and update
 
+Requires **Wealthfolio 3.9** or later. The version follows Wealthfolio: `3.9.x` is built
+and tested for Wealthfolio 3.9, and a new Wealthfolio version gets a matching addon release.
+
 1. Download `broker-importer-addon.zip` from the
    [latest release](https://github.com/waldonso2/wealthfolio-importer-addon/releases/latest).
-2. In Wealthfolio: **Settings → Add-ons → Install from File**. Approve
-   `api.github.com` if you want update hints.
+2. In Wealthfolio: **Settings → Add-ons → Install from File**.
 
-The addon isn't listed in the Wealthfolio store, so Wealthfolio can't update it.
-Instead it checks GitHub once a day and shows a hint when a newer release exists;
-install it the same way. Reinstalling keeps your settings.
+This is a community addon (see the [Wealthfolio community directory](https://wealthfolio.app/addons/community)):
+Wealthfolio installs community addons only from file and doesn't update them, and the
+addon itself makes no network requests. To update, watch this repository's releases
+(GitHub: **Watch → Custom → Releases**) or the directory, and install the new ZIP the same
+way. Reinstalling keeps your settings.
 
 Upgrading from **Trade Republic Importer** (≤ 1.4.0): the addon ID changed, so
 uninstall the old addon, install this one and set up the settings again. Already
@@ -65,6 +69,20 @@ Trades and dividends that are already in Wealthfolio from the other source (CSV 
 vs. PDF statement) are marked **In Wealthfolio** in the review and skipped together with
 their cash transfers, unless you include them. They are found by account, type,
 security, day, shares and amount.
+
+## Example files
+
+Fabricated data in the real export format, to see what the importer expects or to try it
+out with a throwaway account:
+
+| Broker | File | Format |
+| --- | --- | --- |
+| Trade Republic | [`tr-sample.csv`](src/__fixtures__/tr-sample.csv) | `,`-separated, decimal point, UTC timestamps; header `"datetime","date","account_type","category","type",…` |
+| Scalable Capital | [`scalable-sample.csv`](src/__fixtures__/scalable-sample.csv) | `;`-separated, decimal comma, UTF-8 with BOM, Berlin local time; header `Datum;Uhrzeit;Typ;Wertpapiername;ISIN;Wert;Stück;…` |
+| PDF statements | [`src/__fixtures__/pdf/`](src/__fixtures__/pdf) | the text the importer reads from a PDF (buy, sell, dividend per broker), not PDFs themselves |
+
+Each sample covers every supported transaction type of its broker, plus one row that is
+deliberately unsupported to show the **Skipped** list.
 
 ## Supported transactions
 

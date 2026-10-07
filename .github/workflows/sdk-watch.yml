@@ -1,0 +1,59 @@
+name: Wealthfolio SDK watch
+
+# Weekly: when @wealthfolio/addon-sdk publishes a new major.minor line, open an
+# issue to release the addon on that line (see CLAUDE.md "Releasing"). The
+# addon version follows Wealthfolio, so a new line needs a new release even
+# without other changes.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Compare the latest SDK with our version line
+        id: sdk
+        run: |
+          latest=$(npm view @wealthfolio/addon-sdk version)
+          ours=$(node -p "require('./manifest.json').version")
+          latest_line=$(echo "$latest" | cut -d. -f1,2)
+          our_line=$(echo "$ours" | cut -d. -f1,2)
+          echo "latest=$latest" >> "$GITHUB_OUTPUT"
+          echo "line=$latest_line" >> "$GITHUB_OUTPUT"
+          newer=$(node -e "const [a,b]='$latest_line'.split('.').map(Number),[c,d]='$our_line'.split('.').map(Number);console.log(a>c||(a===c&&b>d))")
+          echo "newer=$newer" >> "$GITHUB_OUTPUT"
+          echo "SDK $latest (line $latest_line), addon $ours (line $our_line), newer: $newer"
+
+      - name: Open an issue for the new line
+        if: steps.sdk.outputs.newer == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINE: ${{ steps.sdk.outputs.line }}
+          LATEST: ${{ steps.sdk.outputs.latest }}
+        run: |
+          title="Release on Wealthfolio ${LINE} (SDK ${LATEST})"
+          if gh issue list --state open --search "in:title \"Release on Wealthfolio ${LINE}\"" --json number --jq 'length' | grep -qv '^0$'; then
+            echo "Issue already open."
+            exit 0
+          fi
+          gh issue create --title "$title" --label backlog --body "@wealthfolio/addon-sdk ${LATEST} is out. The addon version follows Wealthfolio, so release it as \`${LINE}.0\`:
+
+          - [ ] Bump \`@wealthfolio/addon-sdk\`, \`@wealthfolio/ui\`, \`@wealthfolio/addon-dev-tools\` to \`^${LINE}.0\` (package.json and manifest \`hostDependencies\`).
+          - [ ] Set \`sdkVersion\`, \`minWealthfolioVersion\` and the version in manifest.json and package.json to \`${LINE}.0\`.
+          - [ ] \`pnpm check:versions && pnpm type-check && pnpm test && pnpm bundle\`; check the SDK changelog for changes to APIs the addon uses.
+          - [ ] CHANGELOG entry, then merge to release.
+
+          Opened by the SDK watch workflow."

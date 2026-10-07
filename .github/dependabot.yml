@@ -4,6 +4,12 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # The Wealthfolio SDK family sets the addon's version line and moves
+    # together with manifest.json; the SDK watch workflow opens an issue for a
+    # new line instead (see CLAUDE.md "Releasing").
+    ignore:
+      - dependency-name: "@wealthfolio/*"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
