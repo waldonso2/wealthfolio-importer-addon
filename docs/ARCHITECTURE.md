@@ -921,7 +921,13 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
 
 > **Status: umgesetzt in Version 1.4.0.** Dieser Abschnitt wurde vor der Umsetzung als
 > Plan geschrieben und beschreibt alle Änderungen, um zusätzlich Transaktionsexporte von **Scalable Capital**
-> (Datei `scalable_transactions_export_<Datum>_de.csv`) zu importieren.
+> (Datei `scalable_transactions_export_<Datum>_de.csv`) zu importieren. Die Datei stammt nicht
+> von Scalable selbst, sondern vom Userscript
+> [Scalable Capital Transactions Exporter](https://github.com/matthesvoss/Scalable-Capital-Transactions-Exporter)
+> (Tampermonkey, Menüpunkt „Export Transactions CSV DE“). Nur die **DE**-Variante passt
+> (`;`, deutsche Spaltennamen); die EN-Variante (`,`, englische Spalten) erkennt
+> `detectFormat` nicht. Ändert das Userscript sein Format, bricht der Import – dann
+> `formats.ts` und `scalable.ts` anpassen.
 > Grundlage ist ein echter Export mit 240 Zeilen (2020–2026), dessen Struktur
 > unten zusammengefasst ist. Personenbezogene Daten aus diesem Export (Depot-IDs,
 > Order-IDs, Referenznummern) dürfen **nicht** in Fixture oder Tests landen.

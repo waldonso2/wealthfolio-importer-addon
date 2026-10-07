@@ -33,9 +33,7 @@ accounts as their CSV export; DKB has its own pair. Optionally add **transfer pa
 
 ## Import
 
-1. Export your transactions as CSV:
-   - Trade Republic: app → Profile → Documents → Transaction history
-   - Scalable Capital: transactions export (`scalable_transactions_export_<date>_de.csv`)
+1. Export your transactions as CSV (see [Getting the CSV export](#getting-the-csv-export)).
 2. **Broker Import → Import**, drop the file.
 3. Map unknown securities to a ticker (remembered for future imports).
 4. Review and import. Activities that already exist are flagged as duplicates and
@@ -46,6 +44,27 @@ accounts as their CSV export; DKB has its own pair. Optionally add **transfer pa
 5. If Wealthfolio rejects some activities, the result page lists them with Wealthfolio's
    reason. Fix the cause (e.g. the security mapping) and press **Retry**, or copy the list
    as CSV and add them manually.
+
+## Getting the CSV export
+
+**Trade Republic** — in the app: Profile → Documents → Transaction history, export as
+CSV. The file holds the full history of your account (cash and securities), so one file is
+enough; re-importing a newer export later only adds what is new.
+
+**Scalable Capital** — Scalable has no complete transaction export of its own. The importer
+reads the CSV created by the
+[Scalable Capital Transactions Exporter](https://github.com/matthesvoss/Scalable-Capital-Transactions-Exporter)
+by Matthes Voß (MIT, a browser userscript; not part of this addon):
+
+1. Install the [Tampermonkey](https://www.tampermonkey.net/) browser extension, then the
+   userscript `scalable-capital-transactions-exporter.user.js` from that repository.
+2. Log in to Scalable Capital and open the **Transactions** page of your broker account
+   (reload the page if the menu entries below don't appear).
+3. In the Tampermonkey menu choose **Export Transactions CSV DE**, optionally limit the
+   date range, and save `scalable_transactions_export_<date>_de.csv`.
+
+Use the **DE** variant: it writes `;`-separated columns with German headers, which the
+importer recognises. The **EN** variant (comma-separated, English headers) is not supported.
 
 ## PDF statements
 
@@ -77,12 +96,31 @@ out with a throwaway account:
 
 | Broker | File | Format |
 | --- | --- | --- |
-| Trade Republic | [`tr-sample.csv`](src/__fixtures__/tr-sample.csv) | `,`-separated, decimal point, UTC timestamps; header `"datetime","date","account_type","category","type",…` |
-| Scalable Capital | [`scalable-sample.csv`](src/__fixtures__/scalable-sample.csv) | `;`-separated, decimal comma, UTF-8 with BOM, Berlin local time; header `Datum;Uhrzeit;Typ;Wertpapiername;ISIN;Wert;Stück;…` |
+| Trade Republic | [`tr-sample.csv`](src/__fixtures__/tr-sample.csv) | `,`-separated, values in `"…"`, decimal point, UTC timestamps |
+| Scalable Capital | [`scalable-sample.csv`](src/__fixtures__/scalable-sample.csv) | `;`-separated, decimal comma, UTF-8 with BOM, Europe/Berlin local time |
 | PDF statements | [`src/__fixtures__/pdf/`](src/__fixtures__/pdf) | the text the importer reads from a PDF (buy, sell, dividend per broker), not PDFs themselves |
 
-Each sample covers every supported transaction type of its broker, plus one row that is
-deliberately unsupported to show the **Skipped** list.
+Each CSV sample covers every supported transaction type of its broker; the Scalable one also
+has one deliberately unsupported row to show the **Skipped** list.
+
+Header and one row (a buy) of each CSV format:
+
+**Trade Republic**
+
+```csv
+"datetime","date","account_type","category","type","asset_class","name","symbol","shares","price","amount","fee","tax","currency","original_amount","original_currency","fx_rate","description","transaction_id","counterparty_name","counterparty_iban","payment_reference","mcc_code"
+"2024-01-20T11:35:34.000Z","2024-01-20","DEFAULT","TRADING","BUY","FUND","FTSE All-World USD (Acc)","IE00BK5BQT80","2.0000000000","100.000000","-200.00","-1.00","","EUR","","","","","00000000-0000-0000-0000-000000000002","","","",""
+```
+
+**Scalable Capital** (Transactions Exporter, DE variant)
+
+```csv
+Datum;Uhrzeit;Typ;Wertpapiername;ISIN;Wert;Stück;Buchungswährung;Gebühren;Steuern;Bruttobetrag;Notiz
+16.06.2026;20:09:37;Kauf;Test World ETF (Dist);IE00TEST0001;-1001;10;EUR;1;0;1000;ORDER0001
+```
+
+The format is detected from the header line, so the column order and names must stay as
+exported.
 
 ## Supported transactions
 
@@ -139,7 +177,9 @@ Incoming transfers are always deposits.
 The PDF statement layouts were worked out with the help of the PDF importers and test
 documents of [Portfolio Performance](https://github.com/portfolio-performance/portfolio);
 no code was taken from it. PDFs are read with [pdf.js](https://mozilla.github.io/pdf.js/)
-(Apache-2.0).
+(Apache-2.0). Scalable Capital CSV files come from the
+[Scalable Capital Transactions Exporter](https://github.com/matthesvoss/Scalable-Capital-Transactions-Exporter)
+by **Matthes Voß**.
 
 This addon is based on the
 [Trade Republic Importer](https://github.com/blastik/trade-republic-importer-addon)
