@@ -12,13 +12,13 @@ pnpm build                # Build to dist/addon.js
 pnpm bundle               # Build + create ZIP for local Wealthfolio installation testing
 ```
 
-The mapping logic lives in the per-broker transformers — `src/transform.ts` (Trade Republic) and `src/scalable.ts` (Scalable Capital) — with shared helpers in `src/common.ts` and format detection in `src/formats.ts`. Tests live next to them (`src/transform.test.ts`, `src/scalable.test.ts`, `src/reconcile.test.ts`, `src/importer.test.ts`, `src/updateCheck.test.ts`) with CSV fixtures in `src/__fixtures__/`. Start with the transformer of the broker you are changing; `docs/ARCHITECTURE.md` explains the whole flow, invariants and change recipes (incl. adding a new broker, section 12.6).
+The mapping logic lives in the per-broker transformers — `src/transform.ts` (Trade Republic) and `src/scalable.ts` (Scalable Capital) — with shared helpers in `src/common.ts` and format detection in `src/formats.ts`. Tests live next to them (`src/transform.test.ts`, `src/scalable.test.ts`, `src/reconcile.test.ts`, `src/importer.test.ts`, `src/pdf/pdf.test.ts`) with CSV fixtures in `src/__fixtures__/`. Start with the transformer of the broker you are changing; `docs/ARCHITECTURE.md` explains the whole flow, invariants and change recipes (incl. adding a new broker, section 12.6).
 
 ## Stack
 
 - **Runtime / package manager**: Node 24, pnpm 11 (versions pinned in `.tool-versions`)
 - **Build**: Vite 8 — outputs a single `dist/addon.js` (ES module, no zip)
-- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic), `src/scalable.test.ts` (Scalable Capital, format detection, `tradeFinalCash`) `src/reconcile.test.ts` (pre-import reconciliation), `src/importer.test.ts` (import logic with a faked activities API), `src/pdf/pdf.test.ts` (PDF parsers, mapping, pdf.js on a generated PDF) and `src/updateCheck.test.ts` (update check) + CSV fixtures in `src/__fixtures__/`, fabricated statement texts in `src/__fixtures__/pdf/`
+- **Tests**: Vitest 4 — `src/transform.test.ts` (Trade Republic), `src/scalable.test.ts` (Scalable Capital, format detection, `tradeFinalCash`) `src/reconcile.test.ts` (pre-import reconciliation), `src/importer.test.ts` (import logic with a faked activities API), `src/pdf/pdf.test.ts` (PDF parsers, mapping, pdf.js on a generated PDF) + CSV fixtures in `src/__fixtures__/`, fabricated statement texts in `src/__fixtures__/pdf/`
 - **PDF**: `pdfjs-dist` 4.10 legacy build, worker bundled and run on the main thread (`src/pdf/text.ts`); `vite.config.ts` aliases the pre-minified files
 - **Type checking**: `tsc --noEmit`
 
@@ -32,7 +32,6 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 | `src/common.ts` | Helpers shared by both transformers (`makeCashAct`, `matchPattern`, `sortAndNumber`, …) |
 | `src/transform.test.ts` | Trade Republic tests (unit + fixture integration) |
 | `src/scalable.test.ts` | Scalable Capital tests (unit + fixture integration), format detection, `tradeFinalCash` |
-| `src/updateCheck.test.ts` | Update check: version comparison, GitHub response parsing, caching, silent failures |
 | `src/importer.ts` / `src/importer.test.ts` | Import logic without React: `applySecurityMappings`, `activityStatus`, `selectCandidates`, `groupIdsByLine`, `buildPayload`, `matchExisting` (same trade/dividend already imported from the other source, CSV ↔ PDF), `importButtonLabel`, `runImport` (counts new vs. updated, collects failures with Wealthfolio's message; retry re-runs only those), `failedAsCsv`. Change import behaviour here, not in `ImportPage.tsx` |
 | `src/reconcile.ts` / `src/reconcile.test.ts` | Pre-import check shown in the review step: cash balance vs. the broker's balance from the file (`trBrokerCash` / `scalableBrokerCash`), cash left on the securities account, holdings. `cashEffect()` mirrors Wealthfolio's cash rules — extend it with every new activity type or subtype |
 | `src/__fixtures__/tr-sample.csv` | 26-row fixture covering every supported Trade Republic transaction type |
@@ -40,7 +39,6 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 | `src/pdf/` | PDF statements: `text.ts` (pdf.js → lines), `parse.ts` (broker detection), `tradeRepublic.ts` / `scalable.ts` / `dkb.ts` (parsers → `PdfTransaction` or a reason), `activities.ts` (two-account mapping, same rules as the CSV transformers), `index.ts` (`parsePdfFiles`). Never put real statements into fixtures — fabricate them in the real layout |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
 | `src/addon.tsx` | Entry point — registers pages and sidebar item via addon-sdk |
-| `src/updateCheck.ts` / `src/UpdateBanner.tsx` | Daily GitHub release check (`ctx.api.network`, host `api.github.com`) and the update hint shown above both pages; the sandboxed iframe can't open external links, so the URL is shown for copying |
 | `docs/ARCHITECTURE.md` | Full architecture (German): modules, data flow, invariants, change recipes |
 
 ## Commands
@@ -67,7 +65,7 @@ Once a bump is agreed, apply it by bumping the `version` field in **both** `mani
 2. Detect the new version tag doesn't exist yet
 3. Create a GitHub release `v{version}` with the changelog section, `dist/broker-importer-addon.zip` (the installable package), and `dist/addon.js` attached
 
-The addon is (being) listed in the Wealthfolio community directory (`wealthfolio/wealthfolio-addons`, `community/directory/broker-importer/addon.store.json`, #32). That listing is a link only: users always install manually from the GitHub release zip (Settings → Add-ons → Install from File), per `README.md`, and Wealthfolio doesn't update community addons — the in-addon update hint (`src/updateCheck.ts`) points them to new releases. The listing's compatibility, licence and data handling are derived from this repo's `manifest.json` and LICENSE, so keep the manifest `id` (`broker-importer`), `sdkVersion` and `network.allowedHosts` accurate.
+The addon is (being) listed in the Wealthfolio community directory (`wealthfolio/wealthfolio-addons`, `community/directory/broker-importer/addon.store.json`, #32). That listing is a link only: users always install manually from the GitHub release zip (Settings → Add-ons → Install from File), per `README.md`, and Wealthfolio doesn't update community addons; users learn about releases from GitHub or the directory. The addon makes **no network requests** (the GitHub update hint was removed in 3.9.0), so the manifest has no `network` permission and the directory shows that no data leaves the device — keep it that way unless a feature really needs a host. The listing's compatibility, licence and data handling are derived from this repo's `manifest.json` and LICENSE, so keep the manifest `id` (`broker-importer`) and `sdkVersion` accurate.
 
 ## Two-account model
 

@@ -109,8 +109,6 @@ src/
 ├── scalable.ts             Scalable Capital: ScRow[] → ActivityImportEx[] (Abschnitt 14)
 ├── ImportPage.tsx          Import-Wizard: Zustand und Darstellung (Schritte, Tabellen, Abgleich, Ergebnis)
 ├── importer.ts             Import-Logik ohne React: Mapping, Status, Payloads, Import-Lauf, Fehler (seit 2.8.0)
-├── UpdateBanner.tsx        Hinweis auf neue Version (über Import und Settings)
-├── updateCheck.ts          Prüft GitHub-Releases auf eine neuere Version (4.2)
 ├── SecurityMappingStep.tsx UI-Schritt: ISIN → Ticker zuordnen
 ├── SettingsPage.tsx        Einstellungen: Konten, Transfer-Patterns, Security-Mappings
 ├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets)
@@ -129,7 +127,6 @@ src/
 │   └── pdf.test.ts         Tests der Parser, der Abbildung und von pdf.js (20 Tests)
 ├── transform.test.ts       Unit- und Fixture-Tests für transform() (73 Tests)
 ├── scalable.test.ts        Tests für scalable.ts, formats.ts, tradeFinalCash (33 Tests)
-├── updateCheck.test.ts     Tests für die Update-Prüfung (8 Tests)
 ├── reconcile.test.ts       Tests für den Abgleich, inkl. beider Fixtures (9 Tests)
 ├── importer.test.ts        Tests für die Import-Logik mit nachgebautem ctx (19 Tests)
 └── __fixtures__/
@@ -184,7 +181,6 @@ flowchart TD
 | **Persistenz** | `settings.ts` | Einzige Stelle, die `ctx.api.secrets` nutzt. |
 | **Import-Logik** | `importer.ts` | Kein React; `ctx` nur als übergebene `activities`-API (`create`/`update`). Vollständig unit-testbar (seit 2.8.0, #13 Stufe 1). |
 | **Orchestrierung + UI** | `ImportPage.tsx` | Zustand und Darstellung des Wizards; ruft `parseAndTransform()`, `checkImport`, `reconcile()` und die Funktionen aus `importer.ts`. |
-| **Update-Hinweis** | `updateCheck.ts`, `UpdateBanner.tsx` | Einzige Stelle mit Netzwerkzugriff (`ctx.api.network`) und Addon-Speicher (`ctx.api.storage`), siehe 4.2. |
 | **Reine UI** | `SecurityMappingStep.tsx`, `SettingsPage.tsx` | Formulare / Darstellung; Mapping-Step ist zustandslos bzgl. Persistenz (Callbacks). |
 | **Bootstrap** | `addon.tsx` | Registrierung beim Host; keine Fachlogik. |
 
@@ -210,7 +206,6 @@ Default-Export `enable(ctx)` auf.
    und danach nur `root.render(...)`. Mehrere Roots auf demselben Knoten brechen das
    Rendering (siehe CHANGELOG 1.3.1). **Bei neuen Routen dieses Muster beibehalten.**
 4. **`Nav`**: einfache Tab-Leiste, navigiert über `ctx.api.navigation.navigate(path)`.
-   Darunter steht auf beiden Seiten `UpdateBanner` (4.2).
 5. **`ctx.onDisable`**: Root unmounten, Sidebar-Eintrag entfernen.
 
 Jede Seite bekommt `ctx` als Prop; es gibt keinen globalen State/Context-Provider.
@@ -229,38 +224,29 @@ ist ein Bruch:** Wealthfolio behandelt das Addon dann als neues Addon. Das alte 
 deinstalliert werden, und die Einstellungen (Konten, Transfer-Patterns, Security-Mappings)
 müssen neu eingerichtet werden, weil `secrets` an die `id` gebunden sind.
 
-### 4.2 Updates und Update-Hinweis
+### 4.2 Updates
 
 **Wie Wealthfolio Addons aktualisiert** (geprüft am Wealthfolio-Quellcode,
 `crates/core/src/addons/service.rs`):
 - Update-Prüfung und -Installation laufen **nur** über den Wealthfolio-Store
-  (`https://wealthfolio.app/api/addons/update-check?addonId=…`). Eine eigene
-  Update-Adresse kann ein Addon nicht angeben, und es kann sich nicht selbst ersetzen.
-  Dieser Store führt nur offizielle Addons; Community-Addons (Verzeichnis, #32 und 11)
-  bekommen weder In-App-Installation noch In-App-Updates.
+  (`https://wealthfolio.app/api/addons/update-check?addonId=…`, Download mit SHA-256 aus
+  dem `distribution`-Block). Eine eigene Update-Adresse kann ein Addon nicht angeben, und
+  es kann sich nicht selbst ersetzen. Der Store führt nur offizielle Addons; ein
+  Community-Eintrag darf keinen `distribution`-Block haben (11) und bekommt daher weder
+  In-App-Installation noch In-App-Updates.
 - **„Install from File"** ersetzt nur den Ordner `addons/<id>/` (mit Sicherung während des
   Austauschs). Ein Addon mit gleicher `id` wird überschrieben, Deinstallieren ist nicht nötig.
 - Die **Einstellungen** liegen im Schlüsselbund des Betriebssystems unter
   `addon:<id>:config` (`ctx.api.secrets`) und bleiben bei „Install from File" erhalten.
-  `ctx.api.storage` (Update-Cache, siehe unten) übersteht Updates und wird beim
-  Deinstallieren gelöscht.
 
-**Update-Hinweis im Addon (seit 2.1.0):**
-- `updateCheck.ts` fragt `https://api.github.com/repos/waldonso2/wealthfolio-importer-addon/releases/latest`
-  über `ctx.api.network.request` ab – **höchstens einmal pro 24 h**; das Ergebnis liegt
-  in `ctx.api.storage` unter `update-check`.
-- Ist `tag_name` neuer als die installierte Version (`version` aus `manifest.json`, beim
-  Build eingebunden), zeigt `UpdateBanner` Version, Download-Adresse der ZIP-Datei und
-  Release-Seite.
-- Die Sandbox des Addons (`<iframe sandbox="allow-scripts">`) erlaubt weder neue Fenster
-  noch das Öffnen externer Seiten. Die Adresse wird deshalb **zum Kopieren** in einem
-  Textfeld angezeigt, nicht als Link.
-- Fehler (keine Freigabe für `api.github.com`, kein Netz, GitHub-Fehler) führen nie zu
-  einer Fehlermeldung, sondern nur dazu, dass kein Hinweis erscheint.
-- Voraussetzung im Manifest: Berechtigung `network` → `request` und
-  `"network": { "allowedHosts": ["api.github.com"] }`. Der Nutzer gibt den Host bei der
-  Installation frei. Wird das Repo umbenannt oder verschoben, `RELEASES_API_URL` in
-  `updateCheck.ts` anpassen; der Name des ZIP-Assets steht dort ebenfalls.
+**Kein eigener Update-Hinweis mehr (seit 3.9.0):** Von 2.1.0 bis 2.11.0 fragte
+`updateCheck.ts` täglich die GitHub-Releases ab (`ctx.api.network`, Host `api.github.com`)
+und `UpdateBanner` zeigte eine neuere Version an. Beides ist mit der Community-Listung
+entfernt (Entscheidung des Repo-Inhabers): Das Addon macht **keine Netzwerkzugriffe**,
+das Manifest hat keine `network`-Berechtigung, und das Verzeichnis zeigt das als
+abgeleitete Angabe. Preis: Nutzer erfahren von neuen Versionen nur über GitHub
+(„Watch → Releases“) oder das Verzeichnis (README). Wer den Hinweis zurückholen will,
+findet ihn im Git-Verlauf (`src/updateCheck.ts`, `src/UpdateBanner.tsx`, Stand 2.11.0).
 
 ---
 
@@ -726,9 +712,9 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 | `query` | `invalidateQueries` | ImportPage |
 | `portfolio` | `update` | ImportPage |
 | `market-data` | `searchTicker` | SecurityMappingStep |
-| `network` | `request` (nur Host `api.github.com`, `manifest.network.allowedHosts`) | updateCheck.ts (seit 2.1.0) |
 
-`ctx.api.storage` (Update-Cache) ist eine Grundfunktion und braucht keine Berechtigung.
+Keine `network`-Berechtigung (seit 3.9.0, 4.2): Ohne sie blockiert die Laufzeit jeden
+Netzwerkzugriff des Addons.
 
 **Neue SDK-Aufrufe ⇒ Eintrag in `permissions` ergänzen** (und Versions-Bump, da Manifest-Änderung).
 
@@ -736,7 +722,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 
 ## 10. Tests
 
-- 162 Tests in sechs Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts`, `reconcile.ts` und `pdf/`.
+- 154 Tests in fünf Dateien; die Komponenten (`*.tsx`) selbst sind nicht getestet, ihre Logik liegt in `importer.ts`, `reconcile.ts` und `pdf/`.
 - **`src/transform.test.ts`** (73 Tests, Trade Republic): Unit-Tests erzeugen Zeilen über
   `row({...overrides})` mit einer festen `CONFIG`. Der Fixture-Test liest
   `src/__fixtures__/tr-sample.csv` und prüft Gesamtanzahl (26 Zeilen → 34 Aktivitäten +
@@ -765,9 +751,6 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
   Bargeld, Steuererstattung, doppelt hochgeladener Beleg, nicht unterstützter Beleg),
   Broker-Mischung, pdf.js-Zeilenbildung an einem im Test erzeugten PDF und ein Durchlauf
   PDF → Aktivitäten auf das DKB-Kontenpaar.
-- **`src/updateCheck.test.ts`** (8 Tests): Versionsvergleich, Auswertung der GitHub-Antwort,
-  Cache (frisch/abgelaufen), Verhalten bei blockierter oder fehlerhafter Anfrage – mit
-  einem nachgebauten `ctx`.
 - `CONFIG` in `transform.test.ts` und `scalable.test.ts` muss alle Felder von
   `AddonSettings` enthalten.
 - Neue Transaktionstypen: **Fixture-Zeile ergänzen** (fiktive Daten, echtes Spaltenformat)
@@ -792,14 +775,15 @@ was es ist. `sdkVersion` und `minWealthfolioVersion` sind `<Linie>.0`, alle
 Wealthfolio-Linie heißt: alles zusammen auf `<Linie>.0` heben, SDK-Changelog auf genutzte
 APIs prüfen, releasen – auch ohne andere Änderungen. Dependabot lässt Minor/Major von
 `@wealthfolio/*` aus (`dependabot.yml`), damit nichts außerhalb der Linie landet. Der
-Sprung von 2.11.0 auf 3.9.0 ist nur eine Umnummerierung; Tags und Update-Hinweis
-(`updateCheck.ts` vergleicht numerisch) funktionieren ohne Sonderfall.
+Sprung von 2.11.0 auf 3.9.0 ist eine Umnummerierung; die Release-Tags laufen ohne
+Sonderfall weiter.
 
 **Community-Verzeichnis:** Gelistet über `community/directory/broker-importer/addon.store.json`
 im Repo `wealthfolio/wealthfolio-addons` (#32). Wealthfolio liest Lizenz, Kompatibilität
-(`sdkVersion`, mindestens 3.6) und Datenzugriff (`network.allowedHosts`) aus diesem Repo;
-die Listing-`id` muss der Manifest-`id` `broker-importer` entsprechen. Kein In-App-Install
-und keine In-App-Updates für Community-Addons – der Update-Hinweis (4.2) bleibt nötig.
+(`sdkVersion`, mindestens 3.6) und Datenzugriff (keine `network`-Berechtigung → keine
+Daten verlassen das Gerät) aus diesem Repo; die Listing-`id` muss der Manifest-`id`
+`broker-importer` entsprechen. Kein In-App-Install und keine In-App-Updates für
+Community-Addons (4.2).
 
 **Release-Gate:** Ein Release entsteht nur durch Versions-Bump. Bei Logikänderungen
 (`src/`, Manifest-Berechtigungen/Metadaten) Version in **`manifest.json` und
@@ -912,9 +896,10 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
    hat doppelte `BUY`/`SELL` in Wealthfolio (siehe 6.4). Das Addon bereinigt sie nicht.
 10. **Scalable-Annahmen** (14.3, „Offene Einzelfälle") sind nur an einem echten Export
     geprüft.
-11. **Kein echtes Auto-Update:** Ohne Listung im Wealthfolio-Store kann das Addon neue
-    Versionen nur anzeigen (4.2); Download und „Install from File" bleiben manuell.
-    `UpdateBanner` ist nur im echten Addon prüfbar (Netzwerkfreigabe, Sandbox).
+11. **Keine Updates in der App:** Community-Addons werden von Wealthfolio weder angeboten
+    noch aktualisiert, und seit 3.9.0 zeigt das Addon auch selbst keine neue Version mehr an
+    (4.2). Download und „Install from File" bleiben manuell; Nutzer müssen Releases auf
+    GitHub oder im Verzeichnis verfolgen.
 12. **TR-Kapitalmaßnahmen:** Bestand und Einstandswert für Wertpapierwechsel und Splits
     (Stufen 2 und 3) stammen aus der importierten Datei – bei unvollständiger Historie werden die
     Zeilen übersprungen; ein späterer Import mit längerer Historie kann einen anderen

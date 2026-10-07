@@ -8,6 +8,10 @@
 - **Requires Wealthfolio 3.9 or later** (before: 3.6). The Wealthfolio SDK family (`@wealthfolio/addon-sdk`, `@wealthfolio/ui`, `@wealthfolio/addon-dev-tools`) is updated from 3.7 to 3.9.
 - README: example files for every supported format.
 
+### Removed
+
+- The daily GitHub update check and the update hint above both pages. The addon now makes no network requests, and its `network` permission (`api.github.com`) is gone, so Wealthfolio no longer asks to approve a host. Wealthfolio doesn't update community addons either: watch the GitHub releases or the community directory for new versions.
+
 ## [2.11.0] - 2026-10-06
 
 ### Added

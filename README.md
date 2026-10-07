@@ -13,12 +13,13 @@ and tested for Wealthfolio 3.9, and a new Wealthfolio version gets a matching ad
 
 1. Download `broker-importer-addon.zip` from the
    [latest release](https://github.com/waldonso2/wealthfolio-importer-addon/releases/latest).
-2. In Wealthfolio: **Settings → Add-ons → Install from File**. Approve
-   `api.github.com` if you want update hints.
+2. In Wealthfolio: **Settings → Add-ons → Install from File**.
 
-Wealthfolio installs community addons only from file and doesn't update them. Instead
-the addon checks GitHub once a day and shows a hint when a newer release exists;
-install it the same way. Reinstalling keeps your settings.
+This is a community addon (see the [Wealthfolio community directory](https://wealthfolio.app/addons/community)):
+Wealthfolio installs community addons only from file and doesn't update them, and the
+addon itself makes no network requests. To update, watch this repository's releases
+(GitHub: **Watch → Custom → Releases**) or the directory, and install the new ZIP the same
+way. Reinstalling keeps your settings.
 
 Upgrading from **Trade Republic Importer** (≤ 1.4.0): the addon ID changed, so
 uninstall the old addon, install this one and set up the settings again. Already

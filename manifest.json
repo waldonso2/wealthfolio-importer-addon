@@ -65,19 +65,11 @@
       "purpose": "Trigger portfolio recalculation after import"
     },
     {
-      "category": "network",
-      "functions": [{ "name": "request", "isDeclared": true, "isDetected": false }],
-      "purpose": "Check GitHub (api.github.com) once a day for a newer release of this addon and show an update hint"
-    },
-    {
       "category": "market-data",
       "functions": [{ "name": "searchTicker", "isDeclared": true, "isDetected": false }],
       "purpose": "Search for securities when mapping unrecognised tickers"
     }
   ],
-  "network": {
-    "allowedHosts": ["api.github.com"]
-  },
   "keywords": ["trade-republic", "scalable-capital", "importer", "csv"],
   "license": "MIT"
 }
