@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.9.1] - 2026-10-10
+
+### Added
+
+- **Correct a wrong security mapping** (#41): Settings → Security mappings → **Change** picks another asset for an ISIN and lists the activities booked on the old one. Select those that belong to this ISIN — preselected are the ones whose comment names the security — and they are moved to the new asset; amounts, comments and cash transfers stay as they are. The holdings are recalculated afterwards.
+- **Warning for suspicious mappings**: when the mapped asset is another ISIN, has another leverage factor (3x vs. 2x) or the other direction (short vs. long), the mapping step, the review before importing and the settings list say so.
+- The addon remembers the security names from the imported files to make these checks.
+
 ## [3.9.0] - 2026-10-07
 
 ### Changed

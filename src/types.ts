@@ -71,6 +71,10 @@ export interface AddonSettings {
   // ISIN -> resolved mapping, persisted so recurring imports of the same
   // security don't require re-mapping every time.
   securityMappings: Record<string, SecurityMapping>;
+  // ISIN -> security name as in the broker's file, remembered with the mapping:
+  // warns when the mapped asset looks like another product and preselects the
+  // activities of that ISIN when a mapping is corrected (#41).
+  securityNames: Record<string, string>;
 }
 
 // "netted": skipped on purpose, its effect is already covered (a reversal and the

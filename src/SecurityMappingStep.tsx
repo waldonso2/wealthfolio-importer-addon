@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AddonContext, SymbolSearchResult } from "@wealthfolio/addon-sdk";
 import { Button, Card, CardContent, Icons, Input } from "@wealthfolio/ui";
+import { mappingWarning } from "./remap";
 import type { SecurityMapping } from "./types";
 
 export type { SecurityMapping } from "./types";
@@ -15,7 +16,7 @@ export interface SecurityInfo {
 
 // ─── TickerSearchInput ────────────────────────────────────────────────────────
 
-function TickerSearchInput({
+export function TickerSearchInput({
   defaultQuery,
   onSelect,
   ctx,
@@ -178,6 +179,13 @@ function SecurityRow({
           onSelect={onMapped}
           ctx={ctx}
         />
+      )}
+
+      {mappingWarning(info.isin, info.name, mapping) && (
+        <p className="col-span-3 -mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+          <Icons.AlertTriangle className="mr-1 inline h-3 w-3" />
+          Check this mapping: {mappingWarning(info.isin, info.name, mapping)}.
+        </p>
       )}
 
       {/* Col 3: Mark Custom (only when unresolved) */}
