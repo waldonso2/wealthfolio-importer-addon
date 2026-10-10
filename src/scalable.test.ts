@@ -20,6 +20,7 @@ const CONFIG: AddonSettings = {
   dkbPortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
+  securityNames: {},
 };
 
 function row(overrides: Partial<ScRow>): ScRow {

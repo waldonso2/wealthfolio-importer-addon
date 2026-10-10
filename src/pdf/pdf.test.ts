@@ -24,6 +24,7 @@ const SETTINGS: AddonSettings = {
   dkbPortfolioAccountId: "dkb-portfolio",
   transferPatterns: [],
   securityMappings: {},
+  securityNames: {},
 };
 
 function tx(name: string): PdfTransaction {

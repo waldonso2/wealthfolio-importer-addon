@@ -37,6 +37,7 @@ import {
   type FailedActivity,
 } from "./importer";
 import { parsePdfFiles } from "./pdf";
+import { mappingWarning, rememberNames } from "./remap";
 import { cashDifference, reconcile, type Reconciliation } from "./reconcile";
 import type { ActivityImportEx, AddonSettings, SkippedRow, TransformResult } from "./types";
 
@@ -480,12 +481,12 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       if (settings) {
         const merged = { ...settings.securityMappings };
         for (const [isin, m] of resolvedMappings) merged[isin] = m;
-        const next = { ...settings, securityMappings: merged };
+        const next = { ...settings, securityMappings: merged, securityNames: rememberNames(settings, securities) };
         setSettings(next);
         void saveSettings(ctx, next);
       }
     },
-    [parseResult, runCheckImport, settings, ctx],
+    [parseResult, runCheckImport, settings, ctx, securities],
   );
 
   // ── Upload & transform ────────────────────────────────────────────────────
@@ -579,12 +580,18 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       } else if (secs.every((s) => prefilled.has(s.isin))) {
         // Every security is already known from a previous import — skip the
         // review step entirely.
+        const names = rememberNames(settings, secs);
+        if (JSON.stringify(names) !== JSON.stringify(settings.securityNames)) {
+          const next = { ...settings, securityNames: names };
+          setSettings(next);
+          void saveSettings(ctx, next);
+        }
         await runCheckImport(applySecurityMappings(result.activities, prefilled));
       } else {
         setStep("asset-review");
       }
     },
-    [settings, readFiles, runCheckImport],
+    [settings, readFiles, runCheckImport, ctx],
   );
 
   const toggleExclude = useCallback((lineNumber: number) => {
@@ -834,6 +841,10 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         ? reconcile(parseResult.activities, formatAccounts(format, settings), brokerCash ?? undefined)
         : null;
 
+    const suspicious = securities
+      .map((s) => ({ s, warning: mappingWarning(s.isin, s.name, mappings.get(s.isin)) }))
+      .filter((x): x is { s: SecurityInfo; warning: string } => !!x.warning);
+
     const visibleActivities = showDuplicatesOnly
       ? checked.filter((a) => activityStatus(a) === "duplicate")
       : checked;
@@ -896,6 +907,27 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
             >
               {existingLines.every((ln) => excludedLines.has(ln)) ? "Include all" : "Skip all"}
             </button>
+          </div>
+        )}
+
+        {/* Mappings that look wrong (#41) */}
+        {suspicious.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-200">
+            <p className="flex items-center gap-1.5 font-medium">
+              <Icons.AlertTriangle className="h-4 w-4" />
+              Check {suspicious.length === 1 ? "this security mapping" : "these security mappings"} before importing
+            </p>
+            <ul className="mt-1 list-inside list-disc text-xs">
+              {suspicious.map(({ s, warning }) => (
+                <li key={s.isin}>
+                  <span className="font-mono">{s.isin}</span> {s.name}: {warning}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-xs">
+              A wrong mapping books the security onto another asset. Go back and change it, or correct it later in
+              Settings → Security mappings, which can also move activities already booked onto the right asset.
+            </p>
           </div>
         )}
 

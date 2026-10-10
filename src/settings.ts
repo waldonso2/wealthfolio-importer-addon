@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: AddonSettings = {
   dkbPortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
+  securityNames: {},
 };
 
 export async function loadSettings(ctx: AddonContext): Promise<AddonSettings> {

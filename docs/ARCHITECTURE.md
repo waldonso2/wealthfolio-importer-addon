@@ -650,6 +650,22 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
 - „Mark All Custom" und „Continue" (erst aktiv, wenn alles aufgelöst).
 - Callbacks: `onMappingsChange`, `onComplete(mappings)`, `onBack`.
   Persistenz macht `ImportPage.handleMappingsComplete` (merge in `settings.securityMappings` + `saveSettings`).
+- Seit 3.9.1 (#41): `mappingWarning` (`remap.ts`) warnt pro Zeile und in der Prüfung vor dem Import, wenn das
+  Ziel verdächtig aussieht – Symbol ist eine andere ISIN, anderer Hebel (`3x` vs. `2x`) oder andere Richtung
+  (Short/Long, Bear/Bull). Die Namen aus der Datei landen in `settings.securityNames` (`rememberNames`).
+
+### 7.1 Zuordnung korrigieren (`remap.ts`, `RemapPanel.tsx`, seit 3.9.1, #41)
+
+Eine falsche Zuordnung bucht alle Aktivitäten der ISIN auf ein fremdes Asset. In den Einstellungen öffnet
+„Change" pro Zuordnung das `RemapPanel`: neues Ziel wählen (Ticker oder Custom), darunter alle Aktivitäten
+der Depotkonten auf dem bisherigen Asset (`activitiesOnMapping`: Typen mit Asset, nach `assetId`/Symbol;
+Cash-Überträge tragen kein Asset und bleiben). Auf dem Asset können auch Buchungen des echten Produkts
+liegen – die ISIN steht nicht in den Kommentaren. Vorausgewählt sind deshalb nur die, deren Kommentar den
+Namen aus der Datei enthält (`likelyOfSecurity`, Name aus `securityNames`); der Rest ist Nutzerentscheidung.
+`remapActivities` schreibt jede gewählte Aktivität per `activities.update` mit dem neuen Asset und sonst
+unveränderten Feldern (Kommentar, Betrag, Gebühr – Teil des Fingerabdrucks) und sammelt Fehler. Danach
+wird die Zuordnung sofort gespeichert (auf den gespeicherten Settings, ungespeicherte Änderungen der Seite
+bleiben ungespeichert) und `portfolio.update()` angestoßen.
 
 ---
 
@@ -669,6 +685,7 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
   dkbPortfolioAccountId: string;
   transferPatterns: TransferPattern[];            // { iban?, keyword?, label, destinationAccountId? }
   securityMappings: Record<string, SecurityMapping>; // ISIN → Ticker | "custom"
+  securityNames: Record<string, string>;             // seit 3.9.1: ISIN → Name aus der Datei
 }
 ```
 
@@ -690,7 +707,8 @@ Kontrollierte Komponente – der Zustand (`Map<isin, SecurityMapping>`) liegt in
   `cashCurrency` bzw. `scalableCashCurrency` aus der Kontowährung übernommen.
 - Editor für Transfer-Patterns (IBAN, Keyword, Label, Zielkonto).
 - Liste gespeicherter Security-Mappings mit Einzel-Löschen und „Clear all"
-  (nötig, weil der Skip-Pfad im Import keinen „Clear"-Button zeigt).
+  (nötig, weil der Skip-Pfad im Import keinen „Clear"-Button zeigt), Warnhinweis bei verdächtigen
+  Zuordnungen und „Change" zum Korrigieren samt Umhängen der Aktivitäten (7.1).
 - Speichern erst nach Klick auf „Save settings". Pflicht: Für **mindestens einen** Broker
   sind beide Konten gesetzt, und kein Broker ist nur halb konfiguriert.
 - Hinweis bei den Transfer-Patterns: Scalable-Exporte haben keine Gegen-IBAN, Patterns

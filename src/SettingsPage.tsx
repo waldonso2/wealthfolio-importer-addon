@@ -16,13 +16,10 @@ import {
   SelectValue,
   Separator,
 } from "@wealthfolio/ui";
+import { RemapPanel } from "./RemapPanel";
+import { mappingLabel, mappingWarning } from "./remap";
 import { loadSettings, saveSettings } from "./settings";
-import type { AddonSettings, TransferPattern } from "./types";
-
-function securityMappingLabel(m: AddonSettings["securityMappings"][string]): string {
-  if (m === "custom") return "Custom (ISIN as symbol)";
-  return `${m.canonicalSymbol || m.symbol}${m.shortName ? ` — ${m.shortName}` : ""}`;
-}
+import type { AddonSettings, SecurityMapping, TransferPattern } from "./types";
 
 function AccountSelect({
   accounts,
@@ -71,6 +68,8 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  // ISIN whose mapping is being changed (#41).
+  const [remapping, setRemapping] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([ctx.api.accounts.getAll(), loadSettings(ctx)]).then(([accs, s]) => {
@@ -106,6 +105,21 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
   };
 
   const clearAllSecurityMappings = () => set({ securityMappings: {} });
+
+  // A changed mapping is saved at once (activities may have been moved to it),
+  // on top of the stored settings so unsaved edits elsewhere on the page stay unsaved.
+  const saveMapping = async (isin: string, mapping: SecurityMapping) => {
+    const stored = await loadSettings(ctx);
+    await saveSettings(ctx, { ...stored, securityMappings: { ...stored.securityMappings, [isin]: mapping } });
+    setSettings((s) => ({ ...s!, securityMappings: { ...s!.securityMappings, [isin]: mapping } }));
+  };
+
+  const securitiesAccounts = [
+    settings.portfolioAccountId,
+    settings.scalablePortfolioAccountId,
+    settings.dkbPortfolioAccountId,
+  ].filter(Boolean);
+  const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
 
   const handleSave = async () => {
     const tr = [settings.cashAccountId, settings.portfolioAccountId];
@@ -351,21 +365,56 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
           <p className="text-muted-foreground text-xs">
             Once an ISIN is mapped to a ticker (or marked custom) during import, it's remembered
             here so future imports of the same security skip the mapping step. Remove an entry to
-            be asked again next time it's imported.
+            be asked again next time it's imported. <strong>Change</strong> corrects a wrong mapping
+            and can move the activities already booked onto the right asset.
           </p>
           {Object.keys(settings.securityMappings).length === 0 ? (
             <p className="text-muted-foreground text-xs italic">No security mappings saved yet.</p>
           ) : (
             <>
               <div className="space-y-1">
-                {Object.entries(settings.securityMappings).map(([isin, mapping]) => (
-                  <PatternRow key={isin} onRemove={() => removeSecurityMapping(isin)}>
-                    <span className="w-32 shrink-0 font-mono text-xs font-bold">{isin}</span>
-                    <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-                      {securityMappingLabel(mapping)}
-                    </span>
-                  </PatternRow>
-                ))}
+                {Object.entries(settings.securityMappings).map(([isin, mapping]) => {
+                  const name = settings.securityNames[isin] ?? "";
+                  const warning = mappingWarning(isin, name, mapping);
+                  return (
+                    <div key={isin} className="space-y-1">
+                      <PatternRow onRemove={() => removeSecurityMapping(isin)}>
+                        <span className="w-32 shrink-0 font-mono text-xs font-bold">{isin}</span>
+                        <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs" title={name}>
+                          {mappingLabel(mapping)}
+                          {warning && (
+                            <span className="ml-2 text-amber-700 dark:text-amber-300">
+                              <Icons.AlertTriangle className="mr-0.5 inline h-3 w-3" />
+                              {warning}
+                            </span>
+                          )}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 shrink-0 px-2 text-xs"
+                          onClick={() => setRemapping(remapping === isin ? null : isin)}
+                        >
+                          <Icons.Pencil className="mr-1 h-3 w-3" />
+                          Change
+                        </Button>
+                      </PatternRow>
+                      {remapping === isin && (
+                        <RemapPanel
+                          ctx={ctx}
+                          isin={isin}
+                          name={name}
+                          current={mapping}
+                          accountIds={securitiesAccounts}
+                          accountName={accountName}
+                          onDone={(m) => void saveMapping(isin, m).catch((e) => setError(String(e)))}
+                          onCancel={() => setRemapping(null)}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={clearAllSecurityMappings}>
                 <Icons.Trash className="mr-1 h-4 w-4" />

@@ -19,6 +19,7 @@ const CONFIG: AddonSettings = {
   dkbPortfolioAccountId: "",
   transferPatterns: [],
   securityMappings: {},
+  securityNames: {},
 };
 const TR = { cashAccountId: "cash", portfolioAccountId: "portfolio" };
 
