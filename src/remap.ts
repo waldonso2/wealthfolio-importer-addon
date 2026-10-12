@@ -1,4 +1,5 @@
 import type { ActivityDetails, ActivityUpdate, AddonContext, AssetResolutionInput } from "@wealthfolio/addon-sdk";
+import { enT, type T } from "./i18n";
 import { errorMessage } from "./importer";
 import type { AddonSettings, SecurityMapping } from "./types";
 
@@ -14,8 +15,9 @@ export function mappingSymbol(isin: string, m: SecurityMapping): string {
   return m === "custom" ? isin : m.canonicalSymbol || m.symbol;
 }
 
-export function mappingLabel(m: SecurityMapping): string {
-  if (m === "custom") return "Custom (ISIN as symbol)";
+// `t` (here and in mappingWarning): the UI's translator, English by default.
+export function mappingLabel(m: SecurityMapping, t: T = enT): string {
+  if (m === "custom") return t("mapping.customLabel");
   return `${m.canonicalSymbol || m.symbol}${m.shortName ? ` — ${m.shortName}` : ""}`;
 }
 
@@ -39,16 +41,21 @@ function directions(name: string): string {
 }
 
 // Why the mapping of `isin` (named `name` in the broker's file) looks wrong, or null.
-export function mappingWarning(isin: string, name: string, m: SecurityMapping | undefined): string | null {
+export function mappingWarning(
+  isin: string,
+  name: string,
+  m: SecurityMapping | undefined,
+  t: T = enT,
+): string | null {
   if (!m || m === "custom") return null;
   const symbol = mappingSymbol(isin, m);
-  if (ISIN_RE.test(symbol) && symbol !== isin) return `mapped to another ISIN (${symbol})`;
+  if (ISIN_RE.test(symbol) && symbol !== isin) return t("mapping.warnOtherIsin", { symbol });
   if (!name) return null;
   const target = [m.shortName, m.longName].filter(Boolean).join(" ");
   const ours = leverage(name);
   const theirs = leverage(target);
-  if (ours && theirs && ours !== theirs) return `leverage differs (${ours}x here, ${theirs}x at ${symbol})`;
-  if (target && directions(name) !== directions(target)) return `long/short differs from ${m.shortName || symbol}`;
+  if (ours && theirs && ours !== theirs) return t("mapping.warnLeverage", { ours, theirs, symbol });
+  if (target && directions(name) !== directions(target)) return t("mapping.warnDirection", { name: m.shortName || symbol });
   return null;
 }
 

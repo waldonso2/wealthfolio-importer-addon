@@ -115,6 +115,7 @@ src/
 ├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[] (inkl. Vorlauf planSpecialRows)
 ├── reconcile.ts            Abgleich vor dem Import: Cash-Saldo, Bargeld im Depot, Bestände (6.5)
 ├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, SkippedRow/SkipKind, …)
+├── i18n.ts                 UI-Texte Englisch/Deutsch, useT(), msg(), rich() (Abschnitt 18)
 ├── pdf/                    PDF-Belege (seit 2.10.0, Abschnitt 17)
 │   ├── index.ts            parsePdfFiles(): Dateien → ParseOutcome (wie parseAndTransform für CSV)
 │   ├── text.ts             PDF → Textzeilen mit pdf.js (einzige Stelle mit pdf.js)
@@ -860,6 +861,7 @@ keine Release-Notes.
    registrieren – **immer `renderInto` nutzen** (gemeinsamer Root).
 3. Link in `Nav` ergänzen.
 4. Neue SDK-Funktionen im Manifest deklarieren.
+5. Alle Texte über `useT()` und in beide Bundles von `i18n.ts` (Abschnitt 18).
 
 ### 12.4 Neuer SDK-Aufruf
 
@@ -1158,6 +1160,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.11.0 | Feature + Fix | **Abgleich mit dem Bestand:** Trades und Dividenden, die schon aus der anderen Quelle (CSV ↔ PDF) in Wealthfolio stehen, werden samt Überträgen erkannt und standardmäßig übersprungen (`matchExisting`, neue Berechtigung `activities.getAll`). **Anzeige:** Import-Button und Ergebnisseite zählen bestehende Aktivitäten (Duplikate, die aktualisiert werden) getrennt von neuen: „Import 3 new · update 6 existing“, Kacheln „New“/„Updated“/„Skipped“. | `importer.ts`, `ImportPage.tsx`, `manifest.json` | 6.4, 9 |
 | 3.9.0 | Pflege | **Version folgt Wealthfolio** (#32): SDK-Familie 3.7 → 3.9, `sdkVersion`/`minWealthfolioVersion` 3.9.0 (vorher 3.6.0), Version 2.11.0 → 3.9.0 (nur Umnummerierung). `pnpm check:versions` in CI/Release, wöchentlicher `sdk-watch.yml`, Dependabot ignoriert `@wealthfolio/*` Minor/Major. README mit Beispieldateien. Vorbereitung der Community-Listung. Keine Verhaltensänderung. | `manifest.json`, `package.json`, `scripts/check-versions.mjs`, `.github/*`, Doku | 11 |
 | 3.9.2 | Fix | **Cash-Buchungen nach dem Broker Sync nicht doppelt** (#65): `matchExisting` erkennt auch `DEPOSIT`, `WITHDRAWAL`, `INTEREST`, `FEE`, `TAX`, `CREDIT`; Trades passen auch unter anderem Symbol, der Subtyp muss gleich sein – dieselben Regeln wie im Service, gemeinsame Fälle in `contract/dedup/cases.json` (#69). CI mit ESLint, Testabdeckung und Komponententests der Seiten (#70). | `importer.ts`, `contract/`, `eslint.config.js`, `vitest.config.ts`, `.github/*` | 6.4, 10 |
+| 3.9.3 | Feature | **Deutsch und Englisch** (#74): Texte aller Seiten in `src/i18n.ts`, Sprache nach Wealthfolio-Einstellung (`registerTranslations`/`useAddonTranslation` der SDK), Begriffe wie im Broker Sync; Überspring-Gründe mit Schlüssel und Parametern; echte Kontonamen aus Wealthfolio. Was Wealthfolio speichert (Kommentare, Beträge), bleibt unverändert. | `i18n.ts`, alle Seiten, Transformer, `pdf/*` | 18 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).
@@ -1361,3 +1364,18 @@ Wie beim CSV-Import (5.5 Nr. 4, 7, 10); `transferGroupId` = `pdf-tr-|pdf-sc-|pdf
 5. Neue Belegarten (Vorabpauschale, Zinsen, Kapitalmaßnahmen) und weitere Broker:
    Parser in `src/pdf/` ergänzen, in `parse.ts` einhängen, erfundenen Belegtext als Fixture
    und Tests dazu (Rezept wie 12.6).
+
+---
+
+## 18. Sprache: Englisch und Deutsch (`i18n.ts`, seit #74)
+
+Die Oberfläche spricht Englisch oder Deutsch und folgt der Spracheinstellung von Wealthfolio; das Addon kann sie nicht selbst umstellen.
+
+- **Bundles:** `resources = { en, de }` in `src/i18n.ts`, verschachtelt nach Bereich (`upload.*`, `review.*`, `reconcile.*`, `done.*`, `mapping.*`, `remap.*`, `settings.*`, `skip.*`, …). `de` hat den Typ von `en`, `i18n.test.ts` prüft zusätzlich, dass beide genau dieselben Schlüssel haben (inkl. Pluralformen `_one`/`_other`). Fehlt ein Schlüssel, gilt Englisch.
+- **Registrierung:** `enable()` in `addon.tsx` ruft `registerTranslations(resources)` vor dem ersten Rendern auf. Die Seitenleiste („Broker Import“) wird außerhalb von React angelegt und bleibt unübersetzt.
+- **Hook `useT()`:** in der Sandbox `useAddonTranslation()` des SDK (Interpolation `{{name}}`, Plural über `count`; `escapeValue: false`, React maskiert selbst), außerhalb (Unit-Tests) ein lokaler Übersetzer über dieselben Bundles, Sprache `en`, umstellbar mit `setFallbackLanguage("de")`. Welche Variante, wird einmal beim Laden entschieden – die Reihenfolge der Hooks bleibt stabil.
+- **Logikmodule** liefern weiter englischen Text, damit ihre Tests aussagekräftig bleiben, und nehmen für die UI einen Übersetzer an (`importButtonLabel(…, t)`, `mappingLabel(m, t)`, `mappingWarning(…, t)`; Standard Englisch). Übersprungene Zeilen (`SkippedRow`) und PDF-Ergebnisse behalten `reason`/`hint`/`title` auf Englisch und tragen zusätzlich `reasonKey`/`hintKey`/`typeKey` + `params`; erzeugt werden sie mit `msg(key, params)`, der englische Text kommt also aus dem `en`-Bundle. Parse-Fehler (`ParseOutcome`) tragen `errorKey`/`errorParams`. Ein Param `<name>Key` enthält einen Schlüssel, dessen Übersetzung als `<name>` eingesetzt wird (z. B. `whenKey: "skip.when.sameDay"`).
+- **Nie übersetzt:** alles, was in Wealthfolio landet – Kommentare (Teil des Duplikat-Fingerabdrucks, 6.4), Symbole, Gruppen-IDs –, außerdem Daten aus den Dateien (Typen, Namen, Überschriften der Belege) und der CSV-Kopf von „Als CSV kopieren“.
+- **Begriffe** wie im Broker Sync Service, Anrede „du“: Verrechnungskonto, Depotkonto, Aktivität/Buchung, Wertpapier-Zuordnung, Übertrag, Einzahlung, Auszahlung, Dividende, Gebühr, Steuer, „Schon in Wealthfolio“, übersprungen, importieren.
+- **Kontonamen:** die Seiten zeigen den Namen des Wealthfolio-Kontos; nur wenn es unbekannt ist (z. B. archiviert), ein übersetztes „Verrechnungskonto (Trade Republic)“ / „Depotkonto (…)“.
+- **Neuer Text:** Schlüssel in `en` und `de` anlegen, in der Komponente `const { t } = useT()` und `t("bereich.schluessel", { … })`; Hervorhebungen als `<strong>`/`<code>` im Text und mit `rich()` rendern.

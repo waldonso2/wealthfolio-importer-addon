@@ -1,4 +1,5 @@
 import type { ImportFormat } from "../formats";
+import { msg, type Msg, type Params } from "../i18n";
 import { berlinToIso } from "../scalable";
 
 // What a broker statement (PDF) says, independent of the broker. The parsers
@@ -37,8 +38,17 @@ export interface PdfTransaction {
 export type PdfParseResult =
   | { ok: true; broker: PdfBroker; tx: PdfTransaction }
   // `title`: what the document is, as far as it could be told; `reason`: why
-  // it isn't imported.
-  | { ok: false; broker: PdfBroker | null; title: string; reason: string };
+  // it isn't imported. Both in English; `titleKey`/`reasonKey` + `params` are
+  // their translations for the UI (#74) - a title from the document has no key.
+  | {
+      ok: false;
+      broker: PdfBroker | null;
+      title: string;
+      reason: string;
+      titleKey?: string;
+      reasonKey: string;
+      params?: Params;
+    };
 
 // ── Numbers ─────────────────────────────────────────────────────────────────
 // Statements use German ("4.532,40") and, in newer Trade Republic PDFs, English
@@ -142,9 +152,22 @@ export function hash(s: string): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
-export function unsupported(broker: PdfBroker | null, title: string, reason: string): PdfParseResult {
-  return { ok: false, broker, title, reason };
+// `title` is a string from the document itself, or a message of our own.
+export function unsupported(broker: PdfBroker | null, title: string | Msg, reason: Msg): PdfParseResult {
+  const ownTitle = typeof title === "string" ? undefined : title;
+  return {
+    ok: false,
+    broker,
+    title: ownTitle ? ownTitle.text : (title as string),
+    reason: reason.text,
+    titleKey: ownTitle?.key,
+    reasonKey: reason.key,
+    params: reason.params,
+  };
 }
+
+// The title of a document that isn't recognised: a known heading, or "Unknown document".
+export const knownOrUnknown = (known: string | undefined): string | Msg => known ?? msg("skip.pdf.unknownTitle");
 
 // Fee of a trade: everything between market value and booked amount that isn't
 // an income tax. Negative means the statement holds amounts the import doesn't
@@ -157,16 +180,16 @@ export function tradeFee(tx: Pick<PdfTransaction, "kind" | "gross" | "net" | "ta
 // Checks shared by all parsers; returns the transaction or why it's rejected.
 export function validated(broker: PdfBroker, tx: PdfTransaction): PdfParseResult {
   const title = `${tx.label} ${tx.name}`.trim();
-  if (!tx.isin) return unsupported(broker, title, "No ISIN found.");
-  if (!(tx.shares > 0)) return unsupported(broker, title, "No share count found.");
+  if (!tx.isin) return unsupported(broker, title, msg("skip.pdf.noIsin"));
+  if (!(tx.shares > 0)) return unsupported(broker, title, msg("skip.pdf.noShares"));
   if (!(tx.net >= 0) || Number.isNaN(tx.gross) || Number.isNaN(tx.tax)) {
-    return unsupported(broker, title, "Amounts could not be read.");
+    return unsupported(broker, title, msg("skip.pdf.noAmounts"));
   }
   if (tx.kind !== "DIVIDEND" && tradeFee(tx) < 0) {
     return unsupported(
       broker,
       title,
-      "Market value, taxes and booked amount don't add up - the statement holds amounts the PDF import doesn't handle (e.g. accrued interest).",
+      msg("skip.pdf.doesntAddUp"),
     );
   }
   return { ok: true, broker, tx };

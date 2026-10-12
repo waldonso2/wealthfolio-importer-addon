@@ -1,3 +1,4 @@
+import { msg } from "../i18n";
 import {
   AMOUNT,
   DATE,
@@ -11,6 +12,7 @@ import {
   parseNum,
   round2,
   section,
+  knownOrUnknown,
   unsupported,
   validated,
   type PdfParseResult,
@@ -39,19 +41,19 @@ export function parseTradeRepublic(text: string): PdfParseResult {
     const known = ls.find((l) => /^(VORABPAUSCHALE|KONTOAUSZUG|KONTOÜBERSICHT|STEUERABRECHNUNG|ABRECHNUNG ZINSEN|ZINSZAHLUNG|SPLIT|STORNO|SECURITIES SETTLEMENT|DIVIDEND)\b/.test(l));
     return unsupported(
       "trade-republic",
-      known ?? "Unknown document",
-      "Only German trade statements (Kauf, Verkauf, Sparplan) and dividend statements are supported.",
+      knownOrUnknown(known),
+      msg("skip.pdf.trOnly"),
     );
   }
   if (ls.some((l) => /^STORNO\b|STORNIERUNG/.test(l))) {
-    return unsupported("trade-republic", heading, "Cancellations (Storno) are not supported - leave both documents out.");
+    return unsupported("trade-republic", heading, msg("skip.pdf.storno"));
   }
 
   // Booking line, e.g. "DE50… 2026-07-09 -4.533,40 EUR". Its amount tells the
   // document's decimal separator (newer statements mix both notations).
   const bookingIdx = ls.findIndex((l) => /^VERRECHNUNGSKONTO\b/.test(l));
   const booking = bookingIdx >= 0 ? first(ls.slice(bookingIdx + 1, bookingIdx + 4), BOOKING) : undefined;
-  if (!booking) return unsupported("trade-republic", heading, "No cash booking (BUCHUNG) found.");
+  if (!booking) return unsupported("trade-republic", heading, msg("skip.pdf.trNoBooking"));
   const dec = decimalOf(booking[2]);
   const num = (s: string) => parseNum(s, dec);
   // Signed as booked: negative for a purchase.
@@ -71,7 +73,7 @@ export function parseTradeRepublic(text: string): PdfParseResult {
     .replace(new RegExp(` ${AMOUNT} [A-Z]{3}$`), "")
     .trim();
   const sharesMatch = first(overview, new RegExp(`(${AMOUNT}) (?:Stk\\.|Stücke)`));
-  if (!total || !sharesMatch) return unsupported("trade-republic", heading, "No position (ÜBERSICHT) found.");
+  if (!total || !sharesMatch) return unsupported("trade-republic", heading, msg("skip.pdf.trNoPosition"));
   const shares = num(sharesMatch[1]);
   const isin = isinLine?.[1] ?? "";
 
@@ -83,7 +85,7 @@ export function parseTradeRepublic(text: string): PdfParseResult {
       overview,
       new RegExp(`(Kauf|Verkauf|BUY|SELL|Sparplanausführung|Ausführung von [\\w ]+?|\\S+-Ausführung) am (${DATE})(?:,? um (\\d{2}:\\d{2}))?`),
     );
-    if (!sentence) return unsupported("trade-republic", heading, "Execution date not found.");
+    if (!sentence) return unsupported("trade-republic", heading, msg("skip.pdf.trNoExecution"));
     const kind = sentence[1] === "Verkauf" || sentence[1] === "SELL" ? "SELL" : "BUY";
     const label =
       sentence[1] === "Sparplanausführung"
@@ -126,7 +128,7 @@ export function parseTradeRepublic(text: string): PdfParseResult {
   if (fxCurrency !== currency) {
     const rateLine = first(ls, new RegExp(`(${AMOUNT}) (?:${fxCurrency}/${currency}|${currency}/${fxCurrency}) `));
     const rate = rateLine ? num(rateLine[1]) : NaN;
-    if (!(rate > 0)) return unsupported("trade-republic", heading, "Exchange rate not found.");
+    if (!(rate > 0)) return unsupported("trade-republic", heading, msg("skip.pdf.trNoRate"));
     gross = round2(grossFx / rate);
     original = { amount: grossFx, currency: fxCurrency, rate };
   }

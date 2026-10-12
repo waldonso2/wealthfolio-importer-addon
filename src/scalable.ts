@@ -1,5 +1,6 @@
 import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag, tradeFinalCash } from "./common";
 import type { ActivityImportEx, AddonSettings, ScRow, SkipKind, SkippedRow, TransformResult } from "./types";
+import { msg, type Msg } from "./i18n";
 
 // Scalable Capital transaction export → Wealthfolio activities.
 // See docs/ARCHITECTURE.md section 14 for the format and the mapping rules.
@@ -142,19 +143,22 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
   for (const r of rows) ts.set(r, berlinToIso(r.Datum, r.Uhrzeit));
   const time = (r: ScRow) => new Date(ts.get(r)!).getTime();
 
-  const skip = (r: ScRow, reason: string, kind: SkipKind = "netted", hint?: string) => {
+  const skip = (r: ScRow, reason: Msg, kind: SkipKind = "netted", hint?: Msg) => {
     consumed.add(r);
     skipped.push({
       datetime: ts.get(r)!,
       type: r.Typ || "(Übertrag)",
       category: "SCALABLE",
       description: r.Wertpapiername ? `${r.Wertpapiername} — ${r.Notiz}` : r.Notiz,
-      reason,
+      reason: reason.text,
       kind,
-      hint,
+      hint: hint?.text,
+      reasonKey: reason.key,
+      hintKey: hint?.key,
+      params: { ...hint?.params, ...reason.params },
     });
   };
-  const addManually = "Add it manually in Wealthfolio if Scalable Capital booked it, and report the case so it can be supported.";
+  const addManually = msg("skip.sc.hint.addManually");
 
   // P→C cash sweep after a sale-like event, tagged as one internal transfer.
   const sweepToCash = (dt: string, amount: number, label: string, groupId: string) => {
@@ -208,10 +212,10 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
         )
       : undefined;
     if (original) {
-      skip(c, "Dividend cancellation (Storno) — offsets the original dividend");
-      skip(original, `Dividend cancelled later (${ref})`);
+      skip(c, msg("skip.sc.dividendStorno"));
+      skip(original, msg("skip.sc.dividendCancelled", { ref }));
     } else {
-      skip(c, "Negative dividend without a matching original dividend.", "missing", addManually);
+      skip(c, msg("skip.sc.negativeDividend"), "missing", addManually);
     }
   }
 
@@ -231,8 +235,8 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       if (!best || dist < Math.abs(time(best) - time(o))) best = i;
     }
     if (best) {
-      skip(o, "Depot migration/correction — offset by a matching transfer in");
-      skip(best, "Depot migration/correction — offset by a matching transfer out");
+      skip(o, msg("skip.sc.migrationOut"));
+      skip(best, msg("skip.sc.migrationIn"));
     }
   }
 
@@ -285,8 +289,8 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       if (!best || dist < Math.abs(time(best) - time(e))) best = w;
     }
     if (best) {
-      skip(e, "Depot migration cash — offset by a matching withdrawal");
-      skip(best, "Depot migration cash — offset by a matching deposit");
+      skip(e, msg("skip.sc.migrationDeposit"));
+      skip(best, msg("skip.sc.migrationWithdrawal"));
     }
   }
 
@@ -427,12 +431,12 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
         break;
 
       case "SWAP_OUT":
-        skip(r, "SWAP_OUT without a matching security transfer row, so the sale price is unknown.", "missing", addManually);
+        skip(r, msg("skip.sc.swapOut"), "missing", addManually);
         break;
 
       case "": {
         if (!r.ISIN) {
-          skip(r, "Row without type and without ISIN.", "missing", addManually);
+          skip(r, msg("skip.sc.noType"), "missing", addManually);
           break;
         }
         // Unpaired security transfer: in → like a TR FREE_RECEIPT, out → security TRANSFER_OUT.
@@ -456,7 +460,7 @@ export function transformScalable(input: ScRow[], config: AddonSettings): Transf
       }
 
       default:
-        skip(r, `Scalable Capital type ${r.Typ} isn't supported yet, so no activity was created.`, "missing", addManually);
+        skip(r, msg("skip.sc.unsupported", { type: r.Typ }), "missing", addManually);
     }
   }
 

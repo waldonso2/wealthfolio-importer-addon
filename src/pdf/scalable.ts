@@ -1,3 +1,4 @@
+import { msg } from "../i18n";
 import {
   AMOUNT,
   DATE,
@@ -7,6 +8,7 @@ import {
   lines,
   parseNum,
   round2,
+  knownOrUnknown,
   unsupported,
   validated,
   type PdfParseResult,
@@ -31,7 +33,7 @@ export function parseScalable(text: string): PdfParseResult {
       ls,
       new RegExp(`^(Kauf|Verkauf) (.+) (${AMOUNT}) Stk\\. (${AMOUNT}) [A-Z]{3} (${AMOUNT}) ([A-Z]{3})$`),
     );
-    if (!pos) return unsupported("scalable", "Wertpapierabrechnung", "No Kauf/Verkauf position found.");
+    if (!pos) return unsupported("scalable", "Wertpapierabrechnung", msg("skip.pdf.scNoPosition"));
     const kind = pos[1] === "Kauf" ? "BUY" : "SELL";
     const posIdx = ls.indexOf(pos[0]);
     const isin = first(ls.slice(posIdx + 1, posIdx + 3), new RegExp(`^(${ISIN})$`))?.[1] ?? "";
@@ -39,7 +41,7 @@ export function parseScalable(text: string): PdfParseResult {
     const order = first(ls, /^Typ .* Order (\S+)$/);
     // "Belastung"/"Gutschrift"; statements before 2025 say "Total".
     const total = first(ls, new RegExp(`^(Belastung|Gutschrift|Total) (${AMOUNT}) ([A-Z]{3})$`));
-    if (!exec || !total) return unsupported("scalable", `${pos[1]} ${pos[2]}`, "Execution or booked amount not found.");
+    if (!exec || !total) return unsupported("scalable", `${pos[1]} ${pos[2]}`, msg("skip.pdf.scNoExecution"));
     // "Steuern" carries the sign of its effect on the cash: -x on a sale is a
     // charge, +x on a purchase too.
     const steuern = first(ls, new RegExp(`^Steuern ([-+]?${AMOUNT}) [A-Z]{3}$`));
@@ -68,7 +70,7 @@ export function parseScalable(text: string): PdfParseResult {
     const shares = first(ls, new RegExp(`^Berechtigte Anzahl (${AMOUNT})`));
     const credit = first(ls, new RegExp(`^(${DATE}) (${DATE}) Gutschrift .* (${AMOUNT}) ([A-Z]{3})$`));
     const total = first(ls, new RegExp(`^Gesamtbetrag (${AMOUNT}) ([A-Z]{3})$`));
-    if (!shares || !credit || !total) return unsupported("scalable", `${label} ${name}`.trim(), "Dividend amounts not found.");
+    if (!shares || !credit || !total) return unsupported("scalable", `${label} ${name}`.trim(), msg("skip.pdf.scNoDividend"));
     const perShare = first(ls, new RegExp(`Gutschrift (${AMOUNT}) ([A-Z]{3}) ${AMOUNT} ${AMOUNT} [A-Z]{3}$`));
     const rate = first(ls, new RegExp(`^([A-Z]{3}) / ([A-Z]{3}) (${AMOUNT})$`));
     const gross = num(credit[3]);
@@ -97,7 +99,7 @@ export function parseScalable(text: string): PdfParseResult {
   const known = ls.find((l) => /^(Vorabpauschale|Steuerneuberechnung|Rechnungsabschluss|Zinszahlung|Kapitalrückzahlung|Verrechnungskonto)\b/.test(l));
   return unsupported(
     "scalable",
-    known ?? "Unknown document",
-    "Only trade statements (Wertpapierabrechnung) and dividend statements are supported.",
+    knownOrUnknown(known),
+    msg("skip.pdf.scOnly"),
   );
 }

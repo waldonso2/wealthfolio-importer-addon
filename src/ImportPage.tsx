@@ -36,6 +36,7 @@ import {
   selectCandidates,
   type FailedActivity,
 } from "./importer";
+import { rich, textOf, useT, type Params, type T } from "./i18n";
 import { parsePdfFiles } from "./pdf";
 import { mappingWarning, rememberNames } from "./remap";
 import { cashDifference, reconcile, type Reconciliation } from "./reconcile";
@@ -64,6 +65,7 @@ function displayAmount(a: ActivityImport): string {
 // ─── UploadZone ─────────────────────────────────────────────────────────────
 
 function UploadZone({ onFiles, error, busy }: { onFiles: (f: File[]) => void; error: string; busy: string }) {
+  const { t } = useT();
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const handleDrop = useCallback(
@@ -103,8 +105,8 @@ function UploadZone({ onFiles, error, busy }: { onFiles: (f: File[]) => void; er
         }}
       />
       <Icons.Upload className="text-muted-foreground mx-auto mb-3 h-8 w-8" />
-      <p className="text-sm font-medium">Drop a CSV export or any number of PDF statements here</p>
-      <p className="text-muted-foreground mt-1 text-xs">or click to browse</p>
+      <p className="text-sm font-medium">{t("upload.drop")}</p>
+      <p className="text-muted-foreground mt-1 text-xs">{t("upload.browse")}</p>
       {busy && <p className="text-muted-foreground mt-3 text-xs">{busy}</p>}
       {error && <p className="text-destructive mt-3 text-xs">{error}</p>}
     </div>
@@ -116,38 +118,46 @@ function UploadZone({ onFiles, error, busy }: { onFiles: (f: File[]) => void; er
 // Rows Wealthfolio will be missing come first; rows that were netted out on
 // purpose need no action.
 const SKIP_STATUS: Record<NonNullable<SkippedRow["kind"]>, { label: string; className: string }> = {
-  missing: { label: "Not imported", className: "text-destructive font-medium" },
-  netted: { label: "No action needed", className: "text-muted-foreground" },
+  missing: { label: "skipped.missing", className: "text-destructive font-medium" },
+  netted: { label: "skipped.netted", className: "text-muted-foreground" },
 };
 
+// Column headers: translation keys.
+function TableHead({ columns, t }: { columns: string[]; t: T }) {
+  return (
+    <thead className="bg-background sticky top-0 border-b">
+      <tr>
+        {columns.map((h) => (
+          <th key={h} className="text-muted-foreground whitespace-nowrap px-2 py-1.5 text-left font-medium">
+            {t(h)}
+          </th>
+        ))}
+      </tr>
+    </thead>
+  );
+}
+
 function SkippedTable({ rows }: { rows: SkippedRow[] }) {
+  const { t } = useT();
   if (rows.length === 0)
-    return <p className="text-muted-foreground p-3 text-xs">No rows were skipped.</p>;
+    return <p className="text-muted-foreground p-3 text-xs">{t("skipped.none")}</p>;
   const ordered = [...rows].sort((a, b) => Number(a.kind === "netted") - Number(b.kind === "netted"));
   return (
     <div className="max-h-96 overflow-auto">
       <table className="w-full text-xs">
-        <thead className="bg-background sticky top-0 border-b">
-          <tr>
-            {["Date", "Type", "Description", "Status", "Reason"].map((h) => (
-              <th key={h} className="text-muted-foreground px-2 py-1.5 text-left font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
+        <TableHead columns={["col.date", "col.type", "col.description", "col.status", "col.reason"]} t={t} />
         <tbody>
           {ordered.map((r, i) => (
             <tr key={i} className="border-border/50 border-b align-top">
               <td className="whitespace-nowrap px-2 py-1 font-mono">{fmtDate(r.datetime)}</td>
-              <td className="whitespace-nowrap px-2 py-1 font-mono">{r.type}</td>
+              <td className="whitespace-nowrap px-2 py-1 font-mono">{textOf(t, r.type, r.typeKey, r.params)}</td>
               <td className="text-muted-foreground px-2 py-1">{truncate(r.description, 80)}</td>
               <td className={`whitespace-nowrap px-2 py-1 ${r.kind ? SKIP_STATUS[r.kind].className : "text-muted-foreground"}`}>
-                {r.kind ? SKIP_STATUS[r.kind].label : "—"}
+                {r.kind ? t(SKIP_STATUS[r.kind].label) : "—"}
               </td>
               <td className="px-2 py-1">
-                <span className="text-muted-foreground">{r.reason}</span>
-                {r.hint && <span className="mt-0.5 block">{r.hint}</span>}
+                <span className="text-muted-foreground">{textOf(t, r.reason, r.reasonKey, r.params)}</span>
+                {r.hint && <span className="mt-0.5 block">{textOf(t, r.hint, r.hintKey, r.params)}</span>}
               </td>
             </tr>
           ))}
@@ -171,18 +181,11 @@ interface ImportOutcome {
 }
 
 function FailedTable({ failed, accountName }: { failed: FailedActivity[]; accountName: (id: string) => string }) {
+  const { t } = useT();
   return (
     <div className="max-h-96 overflow-auto">
       <table className="w-full text-xs">
-        <thead className="bg-background sticky top-0 border-b">
-          <tr>
-            {["Date", "Account", "Type", "Symbol", "Amount", "Error"].map((h) => (
-              <th key={h} className="text-muted-foreground px-2 py-1.5 text-left font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
+        <TableHead columns={["col.date", "col.account", "col.type", "col.symbol", "col.amount", "col.error"]} t={t} />
         <tbody>
           {failed.map(({ activity: a, error }, i) => (
             <tr key={i} className="border-border/50 border-b align-top">
@@ -219,7 +222,11 @@ function ReconcileSummary({
   notImported: number;
   fromPdf: boolean;
 }) {
+  const { t } = useT();
   const diff = cashDifference(rec);
+  const negativeList = rec.negative
+    .map((n) => t("reconcile.negativeItem", { name: n.name || n.symbol, shares: fmtShares(n.quantity), date: n.date }))
+    .join(", ");
   const cashEntries = Object.entries(rec.cash);
   const leftover = Object.entries(rec.portfolioCash);
   const ok = "text-green-700 dark:text-green-400";
@@ -229,54 +236,48 @@ function ReconcileSummary({
         <div className="flex flex-wrap gap-x-8 gap-y-2">
           <div>
             <p className="text-muted-foreground text-xs">
-              {fromPdf ? "Cash account change from these statements" : "Cash account after import"}
+              {fromPdf ? t("reconcile.cashChangePdf") : t("reconcile.cashAfter")}
             </p>
             <p className="font-medium">
               {cashEntries.length === 0 ? "0.00" : cashEntries.map(([c, v]) => fmtMoney(v, c)).join(" · ")}
             </p>
             {rec.brokerCash &&
               (diff === 0 ? (
-                <p className={`text-xs ${ok}`}>Matches the {broker} balance in the file</p>
+                <p className={`text-xs ${ok}`}>{t("reconcile.matches", { broker })}</p>
               ) : (
                 <p className="text-destructive text-xs">
-                  {broker} balance in the file: {fmtMoney(rec.brokerCash.amount, rec.brokerCash.currency)} — differs by{" "}
-                  {fmtMoney(diff, rec.brokerCash.currency)}
-                  {notImported > 0 && ` (see the ${notImported} not imported rows under Skipped)`}
+                  {t("reconcile.differs", {
+                    broker,
+                    balance: fmtMoney(rec.brokerCash.amount, rec.brokerCash.currency),
+                    diff: fmtMoney(diff, rec.brokerCash.currency),
+                  })}
+                  {notImported > 0 && ` ${t("reconcile.differsNotImported", { count: notImported })}`}
                 </p>
               ))}
           </div>
           <div>
-            <p className="text-muted-foreground text-xs">Cash left on the securities account</p>
+            <p className="text-muted-foreground text-xs">{t("reconcile.leftover")}</p>
             {leftover.length === 0 ? (
-              <p className={`font-medium ${ok}`}>None</p>
+              <p className={`font-medium ${ok}`}>{t("reconcile.leftoverNone")}</p>
             ) : (
               <p className="text-destructive font-medium">
-                {leftover.map(([c, v]) => fmtMoney(v, c)).join(" · ")} — should be 0
+                {t("reconcile.shouldBeZero", { amounts: leftover.map(([c, v]) => fmtMoney(v, c)).join(" · ") })}
               </p>
             )}
           </div>
           <div>
-            <p className="text-muted-foreground text-xs">Positions after import</p>
-            <p className="font-medium">{rec.holdings.length} (see Holdings)</p>
+            <p className="text-muted-foreground text-xs">{t("reconcile.positions")}</p>
+            <p className="font-medium">{t("reconcile.positionsCount", { count: rec.holdings.length })}</p>
           </div>
         </div>
         {rec.negative.length > 0 &&
           (fromPdf ? (
-            <p className="text-muted-foreground text-xs">
-              Sold without a purchase in these statements - fine if the position is already in
-              Wealthfolio:{" "}
-              {rec.negative.map((n) => `${n.name || n.symbol} (${fmtShares(n.quantity)} on ${n.date})`).join(", ")}
-            </p>
+            <p className="text-muted-foreground text-xs">{t("reconcile.soldWithoutPurchase", { list: negativeList })}</p>
           ) : (
-            <p className="text-destructive text-xs">
-              Negative holdings — rows are missing or mapped wrongly:{" "}
-              {rec.negative.map((n) => `${n.name || n.symbol} (${fmtShares(n.quantity)} on ${n.date})`).join(", ")}
-            </p>
+            <p className="text-destructive text-xs">{t("reconcile.negative", { list: negativeList })}</p>
           ))}
         <p className="text-muted-foreground text-xs">
-          {fromPdf
-            ? `Computed from these statements only. They hold trades and dividends but no deposits or withdrawals, so the cash account doesn't show your ${broker} balance.`
-            : `Computed from this file only. Compare with your ${broker} app; if the file doesn't cover the full history, the balance and holdings differ.`}
+          {t(fromPdf ? "reconcile.footPdf" : "reconcile.footCsv", { broker })}
         </p>
       </CardContent>
     </Card>
@@ -284,19 +285,12 @@ function ReconcileSummary({
 }
 
 function HoldingsTable({ rec }: { rec: Reconciliation }) {
-  if (rec.holdings.length === 0) return <p className="text-muted-foreground p-3 text-xs">No positions.</p>;
+  const { t } = useT();
+  if (rec.holdings.length === 0) return <p className="text-muted-foreground p-3 text-xs">{t("reconcile.noPositions")}</p>;
   return (
     <div className="max-h-96 overflow-auto">
       <table className="w-full text-xs">
-        <thead className="bg-background sticky top-0 border-b">
-          <tr>
-            {["Security", "ISIN / symbol", "Shares"].map((h) => (
-              <th key={h} className="text-muted-foreground px-2 py-1.5 text-left font-medium">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
+        <TableHead columns={["col.security", "col.isinSymbol", "col.shares"]} t={t} />
         <tbody>
           {rec.holdings.map((h) => (
             <tr key={h.symbol} className="border-border/50 border-b">
@@ -329,6 +323,7 @@ function ActivityRow({
   existing: boolean;
   onToggleInclude: () => void;
 }) {
+  const { t } = useT();
   const status = activityStatus(activity);
   const toggle = (
     <button
@@ -339,7 +334,7 @@ function ActivityRow({
           : "bg-primary text-primary-foreground hover:bg-primary/90"
       }`}
     >
-      {included ? "Skip" : "Include"}
+      {included ? t("common.skip") : t("common.include")}
     </button>
   );
   return (
@@ -358,14 +353,14 @@ function ActivityRow({
         {displayAmount(activity)}
       </td>
       <td className="px-2 py-1.5 text-xs">
-        {status === "valid" && !existing && <span className="text-muted-foreground text-[10px]">Ready</span>}
+        {status === "valid" && !existing && <span className="text-muted-foreground text-[10px]">{t("review.statusReady")}</span>}
         {status === "valid" && existing && (
           <div className="flex items-center gap-1.5">
             <span
               className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
-              title="The same transaction is already in Wealthfolio, imported from another source (e.g. CSV vs. PDF)"
+              title={t("review.statusExistingTitle")}
             >
-              In Wealthfolio
+              {t("review.statusExisting")}
             </span>
             {toggle}
           </div>
@@ -373,7 +368,7 @@ function ActivityRow({
         {status === "duplicate" && (
           <div className="flex items-center gap-1.5">
             <span className="rounded bg-yellow-100 px-1.5 py-0.5 text-[10px] font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">
-              Duplicate
+              {t("review.statusDuplicate")}
             </span>
             {toggle}
           </div>
@@ -392,7 +387,28 @@ function ActivityRow({
 
 type Step = "upload" | "asset-review" | "checking" | "confirm" | "importing" | "done";
 
+// A text for the UI: English, and its translation key when it has one.
+interface UiText {
+  text: string;
+  key?: string;
+  params?: Params;
+}
+
+const uiText = (t: T, key: string, params?: Params): UiText => ({ text: t(key, params), key, params });
+
+// The broker and side (cash/securities) of each configured account, for a
+// label when the Wealthfolio account itself is unknown (e.g. archived).
+function configuredAccount(settings: AddonSettings, id: string): { broker: ImportFormat; side: "cash" | "portfolio" } | null {
+  for (const broker of ["trade-republic", "scalable", "dkb"] as const) {
+    const pair = formatAccounts(broker, settings);
+    if (id === pair.cashAccountId) return { broker, side: "cash" };
+    if (id === pair.portfolioAccountId) return { broker, side: "portfolio" };
+  }
+  return null;
+}
+
 export function ImportPage({ ctx }: { ctx: AddonContext }) {
+  const { t } = useT();
   const [step, setStep] = useState<Step>("upload");
   const [settings, setSettings] = useState<AddonSettings | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -413,7 +429,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   const [matchError, setMatchError] = useState("");
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
 
-  const [fileError, setFileError] = useState("");
+  const [fileError, setFileError] = useState<UiText | null>(null);
   const [checkError, setCheckError] = useState("");
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState<ImportOutcome | null>(null);
@@ -426,18 +442,16 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     });
   }, [ctx]);
 
+  // The Wealthfolio account's own name; a generic label only when it is unknown.
   const accountName = useCallback(
     (id: string): string => {
-      if (!settings) return id;
-      if (id === settings.cashAccountId) return "TR Cash";
-      if (id === settings.portfolioAccountId) return "TR Portfolio";
-      if (id === settings.scalableCashAccountId) return "Scalable Cash";
-      if (id === settings.scalablePortfolioAccountId) return "Scalable Portfolio";
-      if (id === settings.dkbCashAccountId) return "DKB Cash";
-      if (id === settings.dkbPortfolioAccountId) return "DKB Portfolio";
-      return accounts.find((a) => a.id === id)?.name ?? id;
+      const account = accounts.find((a) => a.id === id);
+      if (account) return account.name;
+      const configured = settings && id ? configuredAccount(settings, id) : null;
+      if (configured) return t(`account.${configured.side}`, { broker: FORMAT_LABEL[configured.broker] });
+      return id;
     },
-    [settings, accounts],
+    [settings, accounts, t],
   );
 
   // ── Apply symbol mappings and run checkImport ─────────────────────────────
@@ -493,16 +507,16 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
 
   // One CSV export, or any number of PDF statements of one broker.
   const readFiles = useCallback(
-    async (files: File[]): Promise<{ outcome: ParseOutcome; name: string; pdf: boolean } | string> => {
-      if (!settings) return "Settings are still loading.";
+    async (files: File[]): Promise<{ outcome: ParseOutcome; name: string; pdf: boolean } | UiText> => {
+      if (!settings) return uiText(t, "upload.settingsLoading");
       const isPdf = (f: File) => f.name.toLowerCase().endsWith(".pdf");
       const isCsv = (f: File) => f.name.toLowerCase().endsWith(".csv");
       if (files.every(isPdf)) {
-        setReading(`Reading ${files.length} PDF${files.length === 1 ? "" : "s"}…`);
+        setReading(t("upload.reading", { count: files.length }));
         try {
           const data = await Promise.all(files.map(async (f) => ({ name: f.name, data: await f.arrayBuffer() })));
           const outcome = await parsePdfFiles(data, settings);
-          const name = files.length === 1 ? files[0].name : `${files.length} PDF statements`;
+          const name = files.length === 1 ? files[0].name : t("upload.pdfStatements", { count: files.length });
           return { outcome, name, pdf: true };
         } finally {
           setReading("");
@@ -512,29 +526,27 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         try {
           return { outcome: parseAndTransform(await files[0].text(), settings), name: files[0].name, pdf: false };
         } catch {
-          return "Could not read the file.";
+          return uiText(t, "upload.unreadable");
         }
       }
-      return files.some(isCsv)
-        ? "Upload one CSV export at a time, without PDFs."
-        : "Please upload a .csv export (Trade Republic, Scalable Capital) or .pdf statements (Trade Republic, Scalable Capital, DKB).";
+      return uiText(t, files.some(isCsv) ? "upload.oneCsv" : "upload.wrongType");
     },
-    [settings],
+    [settings, t],
   );
 
   const handleFiles = useCallback(
     async (files: File[]) => {
       if (!settings) return;
-      setFileError("");
+      setFileError(null);
 
       const read = await readFiles(files);
-      if (typeof read === "string") {
+      if (!("outcome" in read)) {
         setFileError(read);
         return;
       }
       const { outcome } = read;
       if (!outcome.ok) {
-        setFileError(outcome.error);
+        setFileError({ text: outcome.error, key: outcome.errorKey, params: outcome.errorParams });
         return;
       }
 
@@ -698,7 +710,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     setExcludedLines(new Set());
     setExistingMatches(new Map());
     setShowDuplicatesOnly(false);
-    setFileError("");
+    setFileError(null);
     setCheckError("");
     setImportResult(null);
     setImportProgress(0);
@@ -725,11 +737,8 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         <Card>
           <CardContent className="space-y-3 p-6 text-center">
             <Icons.Settings className="text-muted-foreground mx-auto h-8 w-8" />
-            <p className="font-medium">Settings not configured</p>
-            <p className="text-muted-foreground text-sm">
-              Please go to the <strong>Settings</strong> tab and select the Cash and Portfolio
-              accounts for Trade Republic, Scalable Capital and/or DKB before importing.
-            </p>
+            <p className="font-medium">{t("notConfigured.title")}</p>
+            <p className="text-muted-foreground text-sm">{rich(t("notConfigured.text"))}</p>
           </CardContent>
         </Card>
       </div>
@@ -740,16 +749,12 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
 
   if (step === "upload") {
     const continueToNextStep = securities.length > 0 ? "asset-review" : undefined;
+    const fileErrorText = fileError ? textOf(t, fileError.text, fileError.key, fileError.params) : "";
     return (
       <div className="max-w-xl space-y-4 p-6">
         <div>
-          <h1 className="text-2xl font-semibold">Import broker CSV or PDF statements</h1>
-          <p className="text-muted-foreground mt-1 text-sm">
-            CSV: Trade Republic (Settings → Documents → Transaction history) or Scalable Capital
-            (transaction export). PDF: trade and dividend statements from Trade Republic, Scalable
-            Capital or DKB - select as many of one broker as you like. The broker is detected
-            automatically.
-          </p>
+          <h1 className="text-2xl font-semibold">{t("upload.title")}</h1>
+          <p className="text-muted-foreground mt-1 text-sm">{t("upload.intro")}</p>
         </div>
         {parseResult && fileName ? (
           <div className="space-y-3">
@@ -759,7 +764,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
                 <p className="truncate text-sm font-medium">{fileName}</p>
                 <p className="text-muted-foreground text-xs">
                   {format ? `${FORMAT_LABEL[format]} · ` : ""}
-                  {parseResult.activities.length} activities parsed
+                  {t("upload.parsed", { count: parseResult.activities.length })}
                 </p>
               </div>
             </div>
@@ -772,16 +777,16 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
                     : void runCheckImport(parseResult.activities)
                 }
               >
-                Continue
+                {t("common.continue")}
               </Button>
               <Button variant="outline" onClick={reset}>
-                Upload different file
+                {t("upload.otherFile")}
               </Button>
             </div>
-            {fileError && <p className="text-destructive text-xs">{fileError}</p>}
+            {fileErrorText && <p className="text-destructive text-xs">{fileErrorText}</p>}
           </div>
         ) : (
-          <UploadZone onFiles={handleFiles} error={fileError} busy={reading} />
+          <UploadZone onFiles={handleFiles} error={fileErrorText} busy={reading} />
         )}
       </div>
     );
@@ -808,11 +813,9 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
     const total = parseResult?.activities.length ?? 0;
     return (
       <div className="max-w-md space-y-4 p-6">
-        <h1 className="text-2xl font-semibold">Validating…</h1>
+        <h1 className="text-2xl font-semibold">{t("checking.title")}</h1>
         <Progress value={undefined} className="animate-pulse" />
-        <p className="text-muted-foreground text-sm">
-          Checking {total} activities for duplicates and errors…
-        </p>
+        <p className="text-muted-foreground text-sm">{t("checking.text", { count: total })}</p>
       </div>
     );
   }
@@ -842,7 +845,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         : null;
 
     const suspicious = securities
-      .map((s) => ({ s, warning: mappingWarning(s.isin, s.name, mappings.get(s.isin)) }))
+      .map((s) => ({ s, warning: mappingWarning(s.isin, s.name, mappings.get(s.isin), t) }))
       .filter((x): x is { s: SecurityInfo; warning: string } => !!x.warning);
 
     const visibleActivities = showDuplicatesOnly
@@ -854,35 +857,31 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         {/* Header */}
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Review activities</h1>
+            <h1 className="text-2xl font-semibold">{t("review.title")}</h1>
             <p className="text-muted-foreground mt-0.5 text-sm">
-              {valid.filter((a) => !isExisting(a)).length} ready
-              {existingCount > 0 && ` · ${existingCount} already in Wealthfolio`} · {duplicates.length} duplicates ·{" "}
-              {errors.length} errors
-              {notImported > 0 && ` · ${notImported} not imported`}
-              {nettedOut > 0 && ` · ${nettedOut} netted out`}
+              {[
+                t("review.ready", { count: valid.filter((a) => !isExisting(a)).length }),
+                existingCount > 0 && t("review.alreadyIn", { count: existingCount }),
+                t("review.duplicates", { count: duplicates.length }),
+                t("review.errors", { count: errors.length }),
+                notImported > 0 && t("review.notImported", { count: notImported }),
+                nettedOut > 0 && t("review.netted", { count: nettedOut }),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
-            {matchError && (
-              <p className="text-destructive mt-1 text-xs">
-                Could not compare with the activities already in Wealthfolio: {matchError} — check for
-                double entries yourself.
-              </p>
-            )}
-            {checkError && (
-              <p className="text-destructive mt-1 text-xs">
-                Validation warning: {checkError} — review manually.
-              </p>
-            )}
+            {matchError && <p className="text-destructive mt-1 text-xs">{t("review.matchError", { error: matchError })}</p>}
+            {checkError && <p className="text-destructive mt-1 text-xs">{t("review.checkError", { error: checkError })}</p>}
           </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
               onClick={() => setStep(securities.length > 0 ? "asset-review" : "upload")}
             >
-              Back
+              {t("common.back")}
             </Button>
             <Button onClick={handleImport} disabled={toImportCount === 0}>
-              {importButtonLabel(toNewCount, toUpdateCount)}
+              {importButtonLabel(toNewCount, toUpdateCount, t)}
             </Button>
           </div>
         </div>
@@ -894,18 +893,12 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         {/* Already in Wealthfolio from another source */}
         {existingCount > 0 && (
           <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm dark:bg-blue-900/20">
-            <span>
-              <span className="font-medium">
-                {existingCount} transaction{existingCount !== 1 ? "s" : ""}
-              </span>{" "}
-              already in Wealthfolio from another import (e.g. CSV instead of PDF) — <strong>skipped</strong>{" "}
-              unless included.
-            </span>
+            <span>{rich(t("review.existingBanner", { count: existingCount }))}</span>
             <button
               onClick={() => toggleLines(existingLines)}
               className="bg-primary text-primary-foreground hover:bg-primary/90 ml-4 shrink-0 rounded px-2 py-1 text-xs font-medium transition-colors"
             >
-              {existingLines.every((ln) => excludedLines.has(ln)) ? "Include all" : "Skip all"}
+              {existingLines.every((ln) => excludedLines.has(ln)) ? t("common.includeAll") : t("common.skipAll")}
             </button>
           </div>
         )}
@@ -915,7 +908,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-200">
             <p className="flex items-center gap-1.5 font-medium">
               <Icons.AlertTriangle className="h-4 w-4" />
-              Check {suspicious.length === 1 ? "this security mapping" : "these security mappings"} before importing
+              {t("review.suspicious", { count: suspicious.length })}
             </p>
             <ul className="mt-1 list-inside list-disc text-xs">
               {suspicious.map(({ s, warning }) => (
@@ -924,28 +917,21 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
                 </li>
               ))}
             </ul>
-            <p className="mt-1 text-xs">
-              A wrong mapping books the security onto another asset. Go back and change it, or correct it later in
-              Settings → Security mappings, which can also move activities already booked onto the right asset.
-            </p>
+            <p className="mt-1 text-xs">{t("review.suspiciousText")}</p>
           </div>
         )}
 
         {/* Duplicate banner */}
         {duplicates.length > 0 && (
           <div className="bg-muted flex items-center justify-between rounded-lg px-4 py-3 text-sm">
-            <span>
-              <span className="font-medium">{duplicates.length} duplicate</span>
-              {duplicates.length !== 1 ? "s" : ""} already exist in Wealthfolio — will be{" "}
-              <strong>updated</strong> unless skipped.
-            </span>
+            <span>{rich(t("review.duplicateBanner", { count: duplicates.length }))}</span>
             <button
               onClick={() => toggleAllDuplicates(duplicates)}
               className="bg-primary text-primary-foreground hover:bg-primary/90 ml-4 shrink-0 rounded px-2 py-1 text-xs font-medium transition-colors"
             >
               {duplicates.every((a) => a.lineNumber != null && excludedLines.has(a.lineNumber))
-                ? "Include all"
-                : "Skip all"}
+                ? t("common.includeAll")
+                : t("common.skipAll")}
             </button>
           </div>
         )}
@@ -956,9 +942,11 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
             <Tabs defaultValue="activities">
               <div className="flex items-center justify-between px-3 pt-3">
                 <TabsList>
-                  <TabsTrigger value="activities">Activities ({checked.length})</TabsTrigger>
-                  <TabsTrigger value="unsupported">Skipped ({unsupported.length})</TabsTrigger>
-                  {rec && <TabsTrigger value="holdings">Holdings ({rec.holdings.length})</TabsTrigger>}
+                  <TabsTrigger value="activities">{t("review.tabActivities", { count: checked.length })}</TabsTrigger>
+                  <TabsTrigger value="unsupported">{t("review.tabSkipped", { count: unsupported.length })}</TabsTrigger>
+                  {rec && (
+                    <TabsTrigger value="holdings">{t("review.tabHoldings", { count: rec.holdings.length })}</TabsTrigger>
+                  )}
                 </TabsList>
                 {duplicates.length > 0 && (
                   <button
@@ -969,9 +957,9 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    {showDuplicatesOnly
-                      ? `Showing duplicates only (${duplicates.length})`
-                      : `Show duplicates only (${duplicates.length})`}
+                    {t(showDuplicatesOnly ? "review.showingDuplicates" : "review.showDuplicates", {
+                      count: duplicates.length,
+                    })}
                   </button>
                 )}
               </div>
@@ -979,18 +967,10 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
               <TabsContent value="activities" className="mt-0">
                 <div className="max-h-[500px] overflow-auto">
                   <table className="w-full text-xs">
-                    <thead className="bg-background sticky top-0 border-b">
-                      <tr>
-                        {["Date", "Account", "Type", "Symbol", "Amount", "Status"].map((h) => (
-                          <th
-                            key={h}
-                            className="text-muted-foreground whitespace-nowrap px-2 py-1.5 text-left font-medium"
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
+                    <TableHead
+                      columns={["col.date", "col.account", "col.type", "col.symbol", "col.amount", "col.status"]}
+                      t={t}
+                    />
                     <tbody>
                       {visibleActivities.map((a, i) => (
                         <ActivityRow
@@ -1032,9 +1012,9 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
   if (step === "importing") {
     return (
       <div className="max-w-md space-y-4 p-6">
-        <h1 className="text-2xl font-semibold">Importing…</h1>
+        <h1 className="text-2xl font-semibold">{t("importing.title")}</h1>
         <Progress value={importProgress} />
-        <p className="text-muted-foreground text-sm">Saving activities to Wealthfolio…</p>
+        <p className="text-muted-foreground text-sm">{t("importing.text")}</p>
       </div>
     );
   }
@@ -1056,10 +1036,10 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
             <Icons.AlertCircle className="text-destructive h-8 w-8 shrink-0" />
           )}
           <div>
-            <h1 className="text-2xl font-semibold">{ok ? "Import complete" : "Import finished with issues"}</h1>
+            <h1 className="text-2xl font-semibold">{ok ? t("done.complete") : t("done.issues")}</h1>
             <p className="text-muted-foreground text-sm">
-              {created} new {created === 1 ? "activity" : "activities"} imported
-              {updated > 0 && `, ${updated} existing updated`}.
+              {t("done.created", { count: created })}
+              {updated > 0 && t("done.updated", { count: updated })}.
             </p>
           </div>
         </div>
@@ -1069,31 +1049,31 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold">{total}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Total</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("done.total")}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold text-green-600">{created}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">New</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("done.new")}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-2xl font-bold">{updated}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Updated</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("done.updatedTile")}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className="text-muted-foreground text-2xl font-bold">{userSkipped}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Skipped</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("done.skipped")}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="p-4 text-center">
               <p className={`text-2xl font-bold ${ok ? "text-muted-foreground" : "text-destructive"}`}>{failed.length}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">Failed</p>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("done.failed")}</p>
             </CardContent>
           </Card>
         </div>
@@ -1102,17 +1082,14 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
           <Card>
             <CardContent className="space-y-3 p-4">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm">
-                  {failed.length} activit{failed.length === 1 ? "y" : "ies"} could not be saved. Wealthfolio's reason is
-                  shown per row; fix the cause (e.g. the security mapping) and retry, or add them manually.
-                </p>
+                <p className="text-sm">{t("done.failedText", { count: failed.length })}</p>
                 <Button onClick={() => void retryFailed()} disabled={retrying} className="shrink-0">
-                  {retrying ? "Retrying…" : `Retry ${failed.length} failed`}
+                  {retrying ? t("done.retrying") : t("done.retry", { count: failed.length })}
                 </Button>
               </div>
               <FailedTable failed={failed} accountName={accountName} />
               <details>
-                <summary className="text-muted-foreground cursor-pointer text-xs">Copy as CSV</summary>
+                <summary className="text-muted-foreground cursor-pointer text-xs">{t("done.copyCsv")}</summary>
                 <textarea
                   readOnly
                   className="bg-muted mt-2 h-32 w-full rounded p-2 font-mono text-xs"
@@ -1125,7 +1102,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
         )}
 
         <Button variant="outline" onClick={reset}>
-          Import another file
+          {t("done.another")}
         </Button>
       </div>
     );

@@ -7,6 +7,7 @@ import type {
   QuoteMode,
 } from "@wealthfolio/addon-sdk";
 import { isCashSymbol } from "./common";
+import { enT, type T } from "./i18n";
 import type { ActivityImportEx, SecurityMapping } from "./types";
 
 // Import logic of the wizard, kept free of React so it can be unit-tested
@@ -295,10 +296,11 @@ export interface ImportRun {
 
 // Text of the import button. Duplicates are existing activities that get
 // updated, not imported again, so they are counted separately.
-export function importButtonLabel(newCount: number, updateCount: number): string {
-  if (updateCount === 0) return `Import ${newCount} ${newCount === 1 ? "activity" : "activities"}`;
-  if (newCount === 0) return `Update ${updateCount} existing`;
-  return `Import ${newCount} new · update ${updateCount} existing`;
+// `t`: the UI's translator (English by default).
+export function importButtonLabel(newCount: number, updateCount: number, t: T = enT): string {
+  if (updateCount === 0) return t("review.importNew", { count: newCount });
+  if (newCount === 0) return t("review.updateOnly", { count: updateCount });
+  return t("review.importAndUpdate", { new: newCount, update: updateCount });
 }
 
 export function errorMessage(e: unknown): string {

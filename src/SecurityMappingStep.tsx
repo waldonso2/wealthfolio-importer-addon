@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AddonContext, SymbolSearchResult } from "@wealthfolio/addon-sdk";
 import { Button, Card, CardContent, Icons, Input } from "@wealthfolio/ui";
+import { useT } from "./i18n";
 import { mappingWarning } from "./remap";
 import type { SecurityMapping } from "./types";
 
@@ -25,6 +26,7 @@ export function TickerSearchInput({
   onSelect: (r: SymbolSearchResult) => void;
   ctx: AddonContext;
 }) {
+  const { t } = useT();
   const [query, setQuery] = useState(defaultQuery);
   const [results, setResults] = useState<SymbolSearchResult[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -73,7 +75,7 @@ export function TickerSearchInput({
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search ticker, name or ISIN…"
+          placeholder={t("mapping.search")}
           className="h-8 pl-7 text-xs"
           onFocus={() => results.length > 0 && setIsOpen(true)}
         />
@@ -101,7 +103,7 @@ export function TickerSearchInput({
               {r.currency && <span className="text-muted-foreground shrink-0">{r.currency}</span>}
               {r.isExisting && (
                 <span className="shrink-0 rounded bg-green-100 px-1 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  Existing
+                  {t("common.existing")}
                 </span>
               )}
             </button>
@@ -127,6 +129,8 @@ function SecurityRow({
   onClear: () => void;
   ctx: AddonContext;
 }) {
+  const { t } = useT();
+  const warning = mappingWarning(info.isin, info.name, mapping, t);
   return (
     <div className="grid grid-cols-[12rem_1fr_auto] items-center gap-3 border-b px-4 py-3 last:border-0">
       {/* Col 1: ISIN + name + count */}
@@ -144,7 +148,7 @@ function SecurityRow({
       {mapping === "custom" ? (
         <div className="flex items-center gap-2">
           <span className="rounded border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-300">
-            Custom (ISIN as symbol)
+            {t("mapping.customLabel")}
           </span>
           <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={onClear}>
             <Icons.X className="h-3 w-3" />
@@ -165,7 +169,7 @@ function SecurityRow({
           )}
           {mapping.isExisting && (
             <span className="shrink-0 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-400">
-              Existing
+              {t("common.existing")}
             </span>
           )}
           <Button size="sm" variant="ghost" className="h-6 shrink-0 px-1.5" onClick={onClear}>
@@ -181,10 +185,10 @@ function SecurityRow({
         />
       )}
 
-      {mappingWarning(info.isin, info.name, mapping) && (
+      {warning && (
         <p className="col-span-3 -mt-1 text-[11px] text-amber-700 dark:text-amber-300">
           <Icons.AlertTriangle className="mr-1 inline h-3 w-3" />
-          Check this mapping: {mappingWarning(info.isin, info.name, mapping)}.
+          {t("mapping.check", { warning })}
         </p>
       )}
 
@@ -197,7 +201,7 @@ function SecurityRow({
           onClick={() => onMapped("custom")}
         >
           <Icons.Tag className="h-3 w-3 shrink-0" />
-          <span>Custom</span>
+          <span>{t("common.custom")}</span>
         </Button>
       )}
     </div>
@@ -221,6 +225,7 @@ export function SecurityMappingStep({
   onComplete: (mappings: Map<string, SecurityMapping>) => void;
   onBack: () => void;
 }) {
+  const { t } = useT();
   const allResolved = securities.every((s) => mappings.has(s.isin));
   const unresolvedCount = securities.filter((s) => !mappings.has(s.isin)).length;
 
@@ -251,15 +256,12 @@ export function SecurityMappingStep({
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Map Securities</h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">
-            {securities.length} {securities.length === 1 ? "security" : "securities"} found. Search
-            for the correct ticker or mark as custom to keep the ISIN.
-          </p>
+          <h1 className="text-2xl font-semibold">{t("mapping.title")}</h1>
+          <p className="text-muted-foreground mt-0.5 text-sm">{t("mapping.found", { count: securities.length })}</p>
         </div>
         <div className="flex shrink-0 gap-2">
           <Button variant="outline" onClick={onBack}>
-            Back
+            {t("common.back")}
           </Button>
           <Button
             variant="outline"
@@ -267,10 +269,10 @@ export function SecurityMappingStep({
             className="border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-500/40 dark:text-amber-300 dark:hover:bg-amber-500/10"
           >
             <Icons.Tag className="mr-1.5 h-3.5 w-3.5" />
-            Mark All Custom
+            {t("mapping.markAllCustom")}
           </Button>
           <Button onClick={() => onComplete(mappings)} disabled={!allResolved}>
-            Continue
+            {t("common.continue")}
           </Button>
         </div>
       </div>
@@ -280,8 +282,8 @@ export function SecurityMappingStep({
         <CardContent className="p-0">
           {/* Table header */}
           <div className="bg-muted/30 grid grid-cols-[12rem_1fr_auto] gap-3 border-b px-4 py-2">
-            {["ISIN / Name", "Map to ticker", ""].map((h) => (
-              <span key={h} className="text-muted-foreground text-[11px] font-medium">
+            {[t("mapping.colIsin"), t("mapping.colTicker"), ""].map((h, i) => (
+              <span key={i} className="text-muted-foreground text-[11px] font-medium">
                 {h}
               </span>
             ))}
@@ -300,10 +302,7 @@ export function SecurityMappingStep({
       </Card>
 
       {!allResolved && (
-        <p className="text-muted-foreground text-sm">
-          {unresolvedCount} {unresolvedCount === 1 ? "security" : "securities"} remaining — resolve
-          all or mark as custom to continue.
-        </p>
+        <p className="text-muted-foreground text-sm">{t("mapping.remaining", { count: unresolvedCount })}</p>
       )}
     </div>
   );

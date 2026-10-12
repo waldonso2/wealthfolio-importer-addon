@@ -6,6 +6,8 @@ Republic**, **Scalable Capital** and **DKB**. The broker is detected automatical
 broker uses its own pair of Wealthfolio accounts (cash + securities), with internal
 transfers between them so balances and spending stay correct.
 
+The addon follows Wealthfolio's language setting: its pages are in English or German.
+
 ## Install and update
 
 Requires **Wealthfolio 3.9** or later. The version follows Wealthfolio: `3.9.x` is built
