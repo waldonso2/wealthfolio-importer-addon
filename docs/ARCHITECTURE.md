@@ -594,12 +594,20 @@ Folgen für das Addon:
 **Gleiche Transaktion aus einer anderen Quelle (seit 2.11.0, `matchExisting` in
 `importer.ts`):** CSV und PDF desselben Brokers erzeugen andere Kommentare und Zeitpunkte,
 `checkImport` erkennt sie also nicht. Nach `checkImport` liest `runCheckImport` daher die
-bestehenden Aktivitäten der Konten mit Trades/Dividenden (`activities.getAll`) und sucht zu
-jedem `BUY`/`SELL`/`DIVIDEND` (Status „valid“) eine bestehende Aktivität mit gleichem Konto,
-Typ und Wertpapier (`assetSymbol` = Symbol oder gleiche `assetId`), höchstens 36 h Abstand,
-gleicher Stückzahl (nicht bei Dividenden – die CSV-Exporte buchen dort Stück bzw. 1) und
-Betrag ±0,02. Jede bestehende Aktivität passt höchstens einmal; die Ziele von
-`duplicateOfId` sind ausgenommen. Zum Treffer gehören seine Überträge (das Paar, dessen
+bestehenden Aktivitäten der betroffenen Konten (`activities.getAll`) und sucht zu
+jedem `BUY`/`SELL`/`DIVIDEND` und jeder Cash-Buchung (`DEPOSIT`, `WITHDRAWAL`, `INTEREST`,
+`FEE`, `TAX`, `CREDIT`; Status „valid“) eine bestehende Aktivität mit gleichem Konto, Typ
+und Subtyp, höchstens 36 h Abstand, gleicher Stückzahl (nur `BUY`/`SELL`) und
+Betrag ±0,02. Dasselbe Wertpapier (`assetSymbol` = Symbol oder gleiche `assetId`) wird
+bevorzugt; ein Trade passt auch unter einem anderen Symbol (der Broker Sync bucht unter der
+ISIN, der Import unter dem zugeordneten Ticker), eine Dividende mit anderem Symbol nur,
+wenn sie der einzige Kandidat ist. Überträge werden nie direkt verglichen. Jede bestehende
+Aktivität passt höchstens einmal; die Ziele von `duplicateOfId` sind ausgenommen.
+Seit 3.9.2 (#65) gehören die Cash-Buchungen dazu – vorher legte ein CSV-Import nach dem
+Broker Sync Einzahlungen, Kartenzahlungen und Zinsen doppelt an. Die Regeln sind dieselben
+wie im Broker Sync (`dedup.ExistingIndex`); `contract/dedup/cases.json` hält sie als
+gemeinsame Fälle, die beide Repos testen (`findExistingMatches`), und die CI vergleicht die
+Datei mit der Kopie im Service (#69). Zum Treffer gehören seine Überträge (das Paar, dessen
 Bein auf diesem Konto ≤ 5 s daneben liegt und denselben Betrag hat – der Trade selbst
 trägt keine `transferGroupId`) und eine `CREDIT`/`TAX_REFUND` im selben Zeitfenster.
 Alle Zeilen der Transaktion landen vorausgewählt in `excludedLines`, die Review zeigt sie
@@ -757,8 +765,11 @@ Netzwerkzugriff des Addons.
   `quoteMode`, `sourceGroupId`), `runImport` (Fortschritt, Fehlersammlung, Retry nur der
   Fehlschläge mit `sourceGroupId`, Zählung neu/aktualisiert), `failedAsCsv`,
   `importButtonLabel`, `matchExisting` (Treffer samt Überträgen, keine Treffer bei anderem
-  Tag/Stück/Betrag/Wertpapier/Konto, Zuordnung über `assetId`, Dividenden ohne Stückvergleich,
-  `duplicateOfId` ausgenommen).
+  Tag/Stück/Betrag/Konto, Trades auch unter anderem Symbol, Cash-Buchungen, Zuordnung über
+  `assetId`, Dividenden ohne Stückvergleich, `duplicateOfId` ausgenommen) und die
+  gemeinsamen Fälle aus `contract/dedup/cases.json`.
+- **`src/pages.test.tsx`**: Einstellungs- und Importseite mit einem nachgebauten
+  `AddonContext` (jsdom, Testing Library): Konten laden, Upload, TR-CSV bis zur Zuordnung.
 - **`src/reconcile.test.ts`** (9 Tests): `cashEffect`, Cash-Saldo, Bargeld im Depot,
   Bestände mit Split/Dividende in Aktien/Wechsel, negative Bestände; Abgleich beider
   Fixtures gegen den Broker-Saldo aus der Datei (TR: Differenz 0; Scalable: −1 € durch
@@ -1146,6 +1157,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 2.10.0 | Feature | **PDF-Belege** (#15): beliebig viele Kauf-, Verkaufs- und Dividendenbelege eines Brokers (Trade Republic, Scalable Capital, DKB) pro Import; Broker am Inhalt erkannt, Import in das Kontenpaar des Brokers aus den Einstellungen (neu: DKB-Paar). pdf.js im Hauptthread. | `pdf/*`, `formats.ts`, `types.ts`, `settings.ts`, `ImportPage.tsx`, `SettingsPage.tsx`, `vite.config.ts` | 3, 8.1, 17 |
 | 2.11.0 | Feature + Fix | **Abgleich mit dem Bestand:** Trades und Dividenden, die schon aus der anderen Quelle (CSV ↔ PDF) in Wealthfolio stehen, werden samt Überträgen erkannt und standardmäßig übersprungen (`matchExisting`, neue Berechtigung `activities.getAll`). **Anzeige:** Import-Button und Ergebnisseite zählen bestehende Aktivitäten (Duplikate, die aktualisiert werden) getrennt von neuen: „Import 3 new · update 6 existing“, Kacheln „New“/„Updated“/„Skipped“. | `importer.ts`, `ImportPage.tsx`, `manifest.json` | 6.4, 9 |
 | 3.9.0 | Pflege | **Version folgt Wealthfolio** (#32): SDK-Familie 3.7 → 3.9, `sdkVersion`/`minWealthfolioVersion` 3.9.0 (vorher 3.6.0), Version 2.11.0 → 3.9.0 (nur Umnummerierung). `pnpm check:versions` in CI/Release, wöchentlicher `sdk-watch.yml`, Dependabot ignoriert `@wealthfolio/*` Minor/Major. README mit Beispieldateien. Vorbereitung der Community-Listung. Keine Verhaltensänderung. | `manifest.json`, `package.json`, `scripts/check-versions.mjs`, `.github/*`, Doku | 11 |
+| 3.9.2 | Fix | **Cash-Buchungen nach dem Broker Sync nicht doppelt** (#65): `matchExisting` erkennt auch `DEPOSIT`, `WITHDRAWAL`, `INTEREST`, `FEE`, `TAX`, `CREDIT`; Trades passen auch unter anderem Symbol, der Subtyp muss gleich sein – dieselben Regeln wie im Service, gemeinsame Fälle in `contract/dedup/cases.json` (#69). CI mit ESLint, Testabdeckung und Komponententests der Seiten (#70). | `importer.ts`, `contract/`, `eslint.config.js`, `vitest.config.ts`, `.github/*` | 6.4, 10 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).
