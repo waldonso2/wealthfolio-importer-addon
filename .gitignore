@@ -35,3 +35,9 @@ yarn-error.log*
 
 # Un-ignore .tool-versions (asdf), even though it's ignored globally on some machines
 !.tool-versions
+
+# Real statements and exports never go into the repository: only the fabricated fixtures do
+# (CLAUDE.md: "Never put real statements into fixtures").
+*.pdf
+*.csv
+!src/__fixtures__/**

@@ -1,0 +1,6 @@
+# Secret scan (CI job "secrets", gitleaks): the default rules. The addon has no secrets of its
+# own and makes no network requests; allow a value here only if it is fabricated test data.
+title = "wealthfolio-importer-addon"
+
+[extend]
+useDefault = true
