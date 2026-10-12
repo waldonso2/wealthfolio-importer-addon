@@ -68,6 +68,10 @@ Once a bump is agreed, apply it by bumping the `version` field in **both** `mani
 
 The addon is (being) listed in the Wealthfolio community directory (`wealthfolio/wealthfolio-addons`, `community/directory/broker-importer/addon.store.json`, #32). That listing is a link only: users always install manually from the GitHub release zip (Settings → Add-ons → Install from File), per `README.md`, and Wealthfolio doesn't update community addons; users learn about releases from GitHub or the directory. The addon makes **no network requests** (the GitHub update hint was removed in 3.9.0), so the manifest has no `network` permission and the directory shows that no data leaves the device — keep it that way unless a feature really needs a host. The listing's compatibility, licence and data handling are derived from this repo's `manifest.json` and LICENSE, so keep the manifest `id` (`broker-importer`) and `sdkVersion` accurate.
 
+## Repository security
+
+CI scans the whole history for secrets (job `secrets`, gitleaks, `.gitleaks.toml`); `.gitignore` keeps every `*.pdf`/`*.csv` outside `src/__fixtures__/` out of the repository, so a real statement used for testing can't be committed. GitHub Actions are pinned to commit SHAs (Dependabot updates them). Vulnerabilities are reported privately (`SECURITY.md`).
+
 ## Two-account model
 
 Trade Republic uses:
