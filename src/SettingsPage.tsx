@@ -16,6 +16,7 @@ import {
   SelectValue,
   Separator,
 } from "@wealthfolio/ui";
+import { rich, useT } from "./i18n";
 import { RemapPanel } from "./RemapPanel";
 import { mappingLabel, mappingWarning } from "./remap";
 import { loadSettings, saveSettings } from "./settings";
@@ -63,6 +64,7 @@ function PatternRow({ children, onRemove }: { children: React.ReactNode; onRemov
 }
 
 export function SettingsPage({ ctx }: { ctx: AddonContext }) {
+  const { t } = useT();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [settings, setSettings] = useState<AddonSettings | null>(null);
   const [saving, setSaving] = useState(false);
@@ -79,7 +81,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
   }, [ctx]);
 
   if (!settings) {
-    return <div className="text-muted-foreground p-6 text-sm">Loading settings…</div>;
+    return <div className="text-muted-foreground p-6 text-sm">{t("settings.loading")}</div>;
   }
 
   const set = (patch: Partial<AddonSettings>) => {
@@ -128,9 +130,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
     const complete = (pair: string[]) => pair.every(Boolean);
     const partial = (pair: string[]) => pair.some(Boolean) && !complete(pair);
     if ([tr, sc, dkb].some(partial) || ![tr, sc, dkb].some(complete)) {
-      setError(
-        "Select both the cash and the securities account for each broker you import from (Trade Republic, Scalable Capital and/or DKB).",
-      );
+      setError(t("settings.incomplete"));
       return;
     }
     setError("");
@@ -150,26 +150,19 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
   return (
     <div className="max-w-2xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">Broker Importer — Settings</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Configure once; settings are saved securely and pre-filled on every import.
-        </p>
+        <h1 className="text-2xl font-semibold">{t("settings.title")}</h1>
+        <p className="text-muted-foreground mt-1 text-sm">{t("settings.intro")}</p>
       </div>
 
       {/* Accounts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Trade Republic accounts</CardTitle>
+          <CardTitle className="text-base">{t("settings.tr.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-xs">
-            Trade Republic does not separate cash from securities — everything lives in one account.
-            Wealthfolio tracks them separately so you can monitor spending, interest, and investment
-            performance independently. Select the two Wealthfolio accounts that represent your TR
-            balance below.
-          </p>
+          <p className="text-muted-foreground text-xs">{t("settings.tr.intro")}</p>
           <div className="space-y-1">
-            <Label>Trade Republic cash account</Label>
+            <Label>{t("settings.tr.cash")}</Label>
             <AccountSelect
               accounts={accounts}
               value={settings.cashAccountId}
@@ -177,26 +170,21 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
                 const acc = accounts.find((a) => a.id === v);
                 set({ cashAccountId: v, cashCurrency: acc?.currency ?? "EUR" });
               }}
-              placeholder="Select cash account…"
+              placeholder={t("settings.selectCash")}
               filterType="CASH"
             />
-            <p className="text-muted-foreground text-xs">
-              Receives deposits, withdrawals, card transactions, interest, and saveback rewards.
-            </p>
+            <p className="text-muted-foreground text-xs">{t("settings.tr.cashHelp")}</p>
           </div>
           <div className="space-y-1">
-            <Label>Trade Republic securities account</Label>
+            <Label>{t("settings.tr.securities")}</Label>
             <AccountSelect
               accounts={accounts}
               value={settings.portfolioAccountId}
               onChange={(v) => set({ portfolioAccountId: v })}
-              placeholder="Select securities account…"
+              placeholder={t("settings.selectSecurities")}
               filterType="SECURITIES"
             />
-            <p className="text-muted-foreground text-xs">
-              Receives buy/sell trades and dividends. The importer automatically creates internal
-              transfers between the two accounts to keep balances correct.
-            </p>
+            <p className="text-muted-foreground text-xs">{t("settings.tr.securitiesHelp")}</p>
           </div>
         </CardContent>
       </Card>
@@ -204,15 +192,12 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
       {/* Scalable Capital accounts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Scalable Capital accounts</CardTitle>
+          <CardTitle className="text-base">{t("settings.sc.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-xs">
-            Scalable Capital exports are imported into their own pair of accounts, so they never
-            mix with Trade Republic. Leave empty if you don't use Scalable Capital.
-          </p>
+          <p className="text-muted-foreground text-xs">{t("settings.sc.intro")}</p>
           <div className="space-y-1">
-            <Label>Scalable Capital cash account</Label>
+            <Label>{t("settings.sc.cash")}</Label>
             <AccountSelect
               accounts={accounts}
               value={settings.scalableCashAccountId}
@@ -220,25 +205,21 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
                 const acc = accounts.find((a) => a.id === v);
                 set({ scalableCashAccountId: v, scalableCashCurrency: acc?.currency ?? "EUR" });
               }}
-              placeholder="Select cash account…"
+              placeholder={t("settings.selectCash")}
               filterType="CASH"
             />
-            <p className="text-muted-foreground text-xs">
-              Receives deposits, withdrawals, interest, fees and taxes (e.g. Vorabpauschale).
-            </p>
+            <p className="text-muted-foreground text-xs">{t("settings.sc.cashHelp")}</p>
           </div>
           <div className="space-y-1">
-            <Label>Scalable Capital securities account</Label>
+            <Label>{t("settings.sc.securities")}</Label>
             <AccountSelect
               accounts={accounts}
               value={settings.scalablePortfolioAccountId}
               onChange={(v) => set({ scalablePortfolioAccountId: v })}
-              placeholder="Select securities account…"
+              placeholder={t("settings.selectSecurities")}
               filterType="SECURITIES"
             />
-            <p className="text-muted-foreground text-xs">
-              Receives buy/sell trades and dividends, with internal transfers to the cash account.
-            </p>
+            <p className="text-muted-foreground text-xs">{t("settings.securitiesHelpPair")}</p>
           </div>
         </CardContent>
       </Card>
@@ -246,39 +227,31 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
       {/* DKB accounts */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">DKB accounts</CardTitle>
+          <CardTitle className="text-base">{t("settings.dkb.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-xs">
-            DKB has no CSV import; its PDF trade and dividend statements are imported into this pair.
-            Trade Republic and Scalable Capital PDFs use the accounts above. Leave empty if you don't
-            use DKB.
-          </p>
+          <p className="text-muted-foreground text-xs">{t("settings.dkb.intro")}</p>
           <div className="space-y-1">
-            <Label>DKB cash account</Label>
+            <Label>{t("settings.dkb.cash")}</Label>
             <AccountSelect
               accounts={accounts}
               value={settings.dkbCashAccountId}
               onChange={(v) => set({ dkbCashAccountId: v })}
-              placeholder="Select cash account…"
+              placeholder={t("settings.selectCash")}
               filterType="CASH"
             />
-            <p className="text-muted-foreground text-xs">
-              The Girokonto the trades are settled with; receives the cash side of trades and dividends.
-            </p>
+            <p className="text-muted-foreground text-xs">{t("settings.dkb.cashHelp")}</p>
           </div>
           <div className="space-y-1">
-            <Label>DKB securities account</Label>
+            <Label>{t("settings.dkb.securities")}</Label>
             <AccountSelect
               accounts={accounts}
               value={settings.dkbPortfolioAccountId}
               onChange={(v) => set({ dkbPortfolioAccountId: v })}
-              placeholder="Select securities account…"
+              placeholder={t("settings.selectSecurities")}
               filterType="SECURITIES"
             />
-            <p className="text-muted-foreground text-xs">
-              Receives buy/sell trades and dividends, with internal transfers to the cash account.
-            </p>
+            <p className="text-muted-foreground text-xs">{t("settings.securitiesHelpPair")}</p>
           </div>
         </CardContent>
       </Card>
@@ -286,45 +259,33 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
       {/* Transfer patterns */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Transfer patterns</CardTitle>
+          <CardTitle className="text-base">{t("settings.patterns.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-muted-foreground text-xs">
-            Outbound transfers matching a pattern are recorded as <code>TRANSFER_OUT</code> instead
-            of <code>WITHDRAWAL</code>. Each pattern requires at least one of:
-          </p>
+          <p className="text-muted-foreground text-xs">{rich(t("settings.patterns.intro"))}</p>
           <ul className="text-muted-foreground list-inside list-disc text-xs">
-            <li>
-              <strong>IBAN</strong> — matched against the counterparty IBAN field, or as a substring
-              of the description (Trade Republic sometimes embeds the IBAN there instead).
-            </li>
-            <li>
-              <strong>Keyword</strong> — matched as a case-insensitive substring of the description.
-            </li>
+            <li>{rich(t("settings.patterns.iban"))}</li>
+            <li>{rich(t("settings.patterns.keyword"))}</li>
           </ul>
-          <p className="text-muted-foreground text-xs">
-            IBAN is tried first (more precise). You can set both on the same pattern. Scalable
-            Capital exports have no counterparty IBAN, so their withdrawals are matched against the
-            note (<code>Notiz</code>) only.
-          </p>
+          <p className="text-muted-foreground text-xs">{rich(t("settings.patterns.note"))}</p>
           {settings.transferPatterns.length === 0 && (
-            <p className="text-muted-foreground text-xs italic">No transfer patterns configured.</p>
+            <p className="text-muted-foreground text-xs italic">{t("settings.patterns.none")}</p>
           )}
           {settings.transferPatterns.map((p, i) => (
             <PatternRow key={i} onRemove={() => removePattern(i)}>
               <Input
-                placeholder="IBAN (e.g. ES36…)"
+                placeholder={t("settings.patterns.ibanPlaceholder")}
                 value={p.iban ?? ""}
                 onChange={(e) => updatePattern(i, { iban: e.target.value.trim() || undefined })}
                 className="font-mono text-xs"
               />
               <Input
-                placeholder="Keyword (e.g. INDEXA)"
+                placeholder={t("settings.patterns.keywordPlaceholder")}
                 value={p.keyword ?? ""}
                 onChange={(e) => updatePattern(i, { keyword: e.target.value || undefined })}
               />
               <Input
-                placeholder="Label (e.g. Indexa pensiones)"
+                placeholder={t("settings.patterns.labelPlaceholder")}
                 value={p.label}
                 onChange={(e) => updatePattern(i, { label: e.target.value })}
               />
@@ -335,10 +296,10 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
                 }
               >
                 <SelectTrigger className="w-44 shrink-0">
-                  <SelectValue placeholder="Destination…" />
+                  <SelectValue placeholder={t("settings.patterns.destination")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={noDestOption}>No destination</SelectItem>
+                  <SelectItem value={noDestOption}>{t("settings.patterns.noDestination")}</SelectItem>
                   <Separator />
                   {accounts.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
@@ -351,7 +312,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
           ))}
           <Button type="button" variant="outline" size="sm" onClick={addPattern}>
             <Icons.Plus className="mr-1 h-4 w-4" />
-            Add pattern
+            {t("settings.patterns.add")}
           </Button>
         </CardContent>
       </Card>
@@ -359,29 +320,24 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
       {/* Security mappings */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Security mappings</CardTitle>
+          <CardTitle className="text-base">{t("settings.mappings.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <p className="text-muted-foreground text-xs">
-            Once an ISIN is mapped to a ticker (or marked custom) during import, it's remembered
-            here so future imports of the same security skip the mapping step. Remove an entry to
-            be asked again next time it's imported. <strong>Change</strong> corrects a wrong mapping
-            and can move the activities already booked onto the right asset.
-          </p>
+          <p className="text-muted-foreground text-xs">{rich(t("settings.mappings.intro"))}</p>
           {Object.keys(settings.securityMappings).length === 0 ? (
-            <p className="text-muted-foreground text-xs italic">No security mappings saved yet.</p>
+            <p className="text-muted-foreground text-xs italic">{t("settings.mappings.none")}</p>
           ) : (
             <>
               <div className="space-y-1">
                 {Object.entries(settings.securityMappings).map(([isin, mapping]) => {
                   const name = settings.securityNames[isin] ?? "";
-                  const warning = mappingWarning(isin, name, mapping);
+                  const warning = mappingWarning(isin, name, mapping, t);
                   return (
                     <div key={isin} className="space-y-1">
                       <PatternRow onRemove={() => removeSecurityMapping(isin)}>
                         <span className="w-32 shrink-0 font-mono text-xs font-bold">{isin}</span>
                         <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs" title={name}>
-                          {mappingLabel(mapping)}
+                          {mappingLabel(mapping, t)}
                           {warning && (
                             <span className="ml-2 text-amber-700 dark:text-amber-300">
                               <Icons.AlertTriangle className="mr-0.5 inline h-3 w-3" />
@@ -397,7 +353,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
                           onClick={() => setRemapping(remapping === isin ? null : isin)}
                         >
                           <Icons.Pencil className="mr-1 h-3 w-3" />
-                          Change
+                          {t("settings.mappings.change")}
                         </Button>
                       </PatternRow>
                       {remapping === isin && (
@@ -418,7 +374,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
               </div>
               <Button type="button" variant="outline" size="sm" onClick={clearAllSecurityMappings}>
                 <Icons.Trash className="mr-1 h-4 w-4" />
-                Clear all
+                {t("settings.mappings.clearAll")}
               </Button>
             </>
           )}
@@ -429,12 +385,12 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
 
       <div className="flex items-center gap-3">
         <Button onClick={handleSave} disabled={saving}>
-          {saving ? "Saving…" : "Save settings"}
+          {saving ? t("settings.saving") : t("settings.save")}
         </Button>
         {saved && (
           <span className="text-muted-foreground flex items-center gap-1 text-sm">
             <Icons.Check className="h-4 w-4 text-green-600" />
-            Saved
+            {t("settings.saved")}
           </span>
         )}
       </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ActivityDetails, AddonContext } from "@wealthfolio/addon-sdk";
 import { Button, Icons } from "@wealthfolio/ui";
+import { rich, useT } from "./i18n";
 import { errorMessage } from "./importer";
 import {
   activitiesOnMapping,
@@ -37,6 +38,7 @@ export function RemapPanel({
   onDone: (mapping: SecurityMapping) => void;
   onCancel: () => void;
 }) {
+  const { t } = useT();
   // The mapping as it was when the panel opened: saving the new one doesn't reload the list.
   const [from] = useState(current);
   // A string, so a new array with the same ids doesn't reload the list.
@@ -76,9 +78,9 @@ export function RemapPanel({
     if (!target) return;
     const chosen = (onOld ?? []).filter((a) => selected.has(a.id));
     if (chosen.length) {
-      setProgress(`Moving 0 of ${chosen.length}…`);
-      const result = await remapActivities(ctx.api.activities, chosen, mappingAsset(isin, name, target), (d, t) =>
-        setProgress(`Moving ${d} of ${t}…`),
+      setProgress(t("remap.moving", { done: 0, total: chosen.length }));
+      const result = await remapActivities(ctx.api.activities, chosen, mappingAsset(isin, name, target), (done, total) =>
+        setProgress(t("remap.moving", { done, total })),
       );
       setRun(result);
       setProgress("");
@@ -94,18 +96,18 @@ export function RemapPanel({
     onDone(target);
   };
 
-  const warning = target ? mappingWarning(isin, name, target) : null;
+  const warning = target ? mappingWarning(isin, name, target, t) : null;
   const fmtDate = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
 
   return (
     <div className="bg-muted/30 space-y-3 rounded-md border p-3 text-xs">
       <p>
-        <span className="font-mono font-bold">{isin}</span> {name && <span>{name} </span>}is mapped to{" "}
-        <strong>{mappingLabel(from)}</strong>. Choose the right asset:
+        <span className="font-mono font-bold">{isin}</span> {name && <span>{name} </span>}
+        {rich(t("remap.isMappedTo", { label: mappingLabel(from, t) }))}
       </p>
       {target ? (
         <div className="flex items-center gap-2">
-          <span className="font-medium">New mapping: {mappingLabel(target)}</span>
+          <span className="font-medium">{t("remap.newMapping", { label: mappingLabel(target, t) })}</span>
           <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => setTarget(null)}>
             <Icons.X className="h-3 w-3" />
           </Button>
@@ -115,40 +117,36 @@ export function RemapPanel({
           <TickerSearchInput defaultQuery={name || isin} onSelect={setTarget} ctx={ctx} />
           <Button size="sm" variant="ghost" className="h-8 shrink-0 gap-1 px-2" onClick={() => setTarget("custom")}>
             <Icons.Tag className="h-3 w-3" />
-            Custom
+            {t("common.custom")}
           </Button>
         </div>
       )}
       {warning && (
         <p className="text-amber-700 dark:text-amber-300">
           <Icons.AlertTriangle className="mr-1 inline h-3 w-3" />
-          Check this mapping too: {warning}.
+          {t("remap.checkToo", { warning })}
         </p>
       )}
 
       <div className="space-y-1">
-        <p className="font-medium">Activities on {mappingLabel(from)}</p>
-        {loadError && <p className="text-destructive">Could not read the activities: {loadError}</p>}
-        {!onOld && !loadError && <p className="text-muted-foreground">Loading…</p>}
-        {onOld && onOld.length === 0 && <p className="text-muted-foreground italic">None.</p>}
+        <p className="font-medium">{t("remap.activitiesOn", { label: mappingLabel(from, t) })}</p>
+        {loadError && <p className="text-destructive">{t("remap.loadError", { error: loadError })}</p>}
+        {!onOld && !loadError && <p className="text-muted-foreground">{t("common.loading")}</p>}
+        {onOld && onOld.length === 0 && <p className="text-muted-foreground italic">{t("common.none")}</p>}
         {onOld && onOld.length > 0 && (
           <>
-            <p className="text-muted-foreground">
-              Other ISINs may be booked on the same asset (e.g. its real product). Select only the activities of{" "}
-              {isin}
-              {name ? " — preselected: those whose comment names it" : ""}. Cash transfers stay as they are.
-            </p>
+            <p className="text-muted-foreground">{t(name ? "remap.explainNamed" : "remap.explain", { isin })}</p>
             <div className="max-h-72 overflow-auto rounded border">
               <table className="w-full">
                 <thead className="bg-muted/50 text-muted-foreground">
                   <tr>
                     <th className="w-6 p-1"></th>
-                    <th className="p-1 text-left">Date</th>
-                    <th className="p-1 text-left">Account</th>
-                    <th className="p-1 text-left">Type</th>
-                    <th className="p-1 text-right">Shares</th>
-                    <th className="p-1 text-right">Amount</th>
-                    <th className="p-1 text-left">Comment</th>
+                    <th className="p-1 text-left">{t("col.date")}</th>
+                    <th className="p-1 text-left">{t("col.account")}</th>
+                    <th className="p-1 text-left">{t("col.type")}</th>
+                    <th className="p-1 text-right">{t("col.shares")}</th>
+                    <th className="p-1 text-right">{t("col.amount")}</th>
+                    <th className="p-1 text-left">{t("col.comment")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -157,7 +155,7 @@ export function RemapPanel({
                       <td className="p-1">
                         <input
                           type="checkbox"
-                          aria-label="move"
+                          aria-label={t("remap.moveAria")}
                           checked={selected.has(a.id)}
                           onChange={() => toggle(a.id)}
                           disabled={!!progress || !!run}
@@ -183,8 +181,8 @@ export function RemapPanel({
       {run && (
         <div>
           <p>
-            Moved {run.moved} {run.moved === 1 ? "activity" : "activities"}
-            {run.failed.length > 0 && `, ${run.failed.length} failed`}.
+            {t("remap.moved", { count: run.moved })}
+            {run.failed.length > 0 && t("remap.movedFailed", { count: run.failed.length })}.
           </p>
           {run.failed.map((f) => (
             <p key={f.activity.id} className="text-destructive">
@@ -198,18 +196,16 @@ export function RemapPanel({
         {!run && (
           <>
             <Button size="sm" onClick={apply} disabled={!target || !!progress || (!onOld && !loadError)}>
-              {selected.size > 0
-                ? `Save mapping and move ${selected.size} ${selected.size === 1 ? "activity" : "activities"}`
-                : "Save mapping"}
+              {selected.size > 0 ? t("remap.saveAndMove", { count: selected.size }) : t("remap.save")}
             </Button>
             <Button size="sm" variant="outline" onClick={onCancel} disabled={!!progress}>
-              Cancel
+              {t("common.cancel")}
             </Button>
           </>
         )}
         {run && (
           <Button size="sm" variant="outline" onClick={onCancel}>
-            Close
+            {t("common.close")}
           </Button>
         )}
         {progress && <span className="text-muted-foreground">{progress}</span>}

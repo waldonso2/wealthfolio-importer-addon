@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.9.3] - 2026-10-12
+
+### Added
+
+- **German or English, as Wealthfolio is set** (#74): every page of the addon (import, security mapping, review, settings, correcting a mapping) follows Wealthfolio's language. In German it uses the same words as the broker sync service: Verrechnungskonto, Depotkonto, Wertpapier-Zuordnung, Übertrag. Reasons for skipped rows and hints for what to add by hand are translated too.
+- **Your own account names**: the review and the list of failed activities show the names you gave your accounts in Wealthfolio instead of fixed labels like "TR Cash".
+
+### Changed
+
+- Small wording fixes in English: "1 duplicate already exists", "1 activity parsed".
+- Nothing changes in what is imported: comments, amounts and everything else Wealthfolio stores stay exactly the same, so earlier imports are still recognised.
+
 ## [3.9.2] - 2026-10-12
 
 ### Fixed

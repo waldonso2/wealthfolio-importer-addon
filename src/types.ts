@@ -1,4 +1,5 @@
 import type { ActivityImport, SymbolSearchResult } from "@wealthfolio/addon-sdk";
+import type { Params } from "./i18n";
 
 export interface TrRow {
   datetime: string;
@@ -91,6 +92,12 @@ export interface SkippedRow {
   kind?: SkipKind;
   // What the user can do about a "missing" row.
   hint?: string;
+  // The same texts for the UI (#74): translation keys of `type`, `reason` and
+  // `hint` and their params (src/i18n.ts). `reason`/`hint` stay English.
+  typeKey?: string;
+  reasonKey?: string;
+  hintKey?: string;
+  params?: Params;
 }
 
 // ActivityImport (the CSV-import-shaped SDK type) has no sourceGroupId field —

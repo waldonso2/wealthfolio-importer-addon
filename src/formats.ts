@@ -2,6 +2,7 @@ import Papa from "papaparse";
 import { scalableBrokerCash, transformScalable } from "./scalable";
 import { transform, trBrokerCash } from "./transform";
 import type { AddonSettings, ScRow, TransformResult, TrRow } from "./types";
+import { msg, type Msg, type Params } from "./i18n";
 
 // Supported brokers. CSV exports (Trade Republic, Scalable Capital) are told
 // apart by their header line, PDF statements (all three, src/pdf/) by their
@@ -51,27 +52,26 @@ export type ParseOutcome =
   // compare against the imported cash account (reconcile.ts). PDF statements
   // have none.
   | { ok: true; format: ImportFormat; result: TransformResult; brokerCash?: { currency: string; amount: number } }
-  | { ok: false; error: string };
+  // error: English; errorKey/errorParams: the same for the UI (#74).
+  | { ok: false; error: string; errorKey: string; errorParams?: Params };
+
+export function failure(m: Msg): ParseOutcome {
+  return { ok: false, error: m.text, errorKey: m.key, errorParams: m.params };
+}
 
 export function parseAndTransform(text: string, settings: AddonSettings): ParseOutcome {
   const format = detectFormat(text);
   if (!format) {
-    return {
-      ok: false,
-      error: "Unrecognised CSV. Upload a transaction export from Trade Republic or Scalable Capital.",
-    };
+    return failure(msg("upload.unrecognisedCsv"));
   }
   if (!isFormatConfigured(format, settings)) {
-    return {
-      ok: false,
-      error: `Select your ${FORMAT_LABEL[format]} cash and securities accounts in Settings first.`,
-    };
+    return failure(msg("upload.selectAccounts", { broker: FORMAT_LABEL[format] }));
   }
 
   const body = stripBom(text);
   if (format === "scalable") {
     const parsed = Papa.parse<ScRow>(body, { header: true, delimiter: ";", skipEmptyLines: true });
-    if (parsed.data.length === 0) return { ok: false, error: "No rows found in the Scalable Capital export." };
+    if (parsed.data.length === 0) return failure(msg("upload.noRows", { broker: FORMAT_LABEL[format] }));
     return {
       ok: true,
       format,
@@ -80,7 +80,7 @@ export function parseAndTransform(text: string, settings: AddonSettings): ParseO
     };
   }
   const parsed = Papa.parse<TrRow>(body, { header: true, skipEmptyLines: true });
-  if (parsed.data.length === 0) return { ok: false, error: "No rows found in the Trade Republic export." };
+  if (parsed.data.length === 0) return failure(msg("upload.noRows", { broker: FORMAT_LABEL[format] }));
   return {
     ok: true,
     format,

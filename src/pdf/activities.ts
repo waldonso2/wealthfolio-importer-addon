@@ -1,5 +1,6 @@
 import { addSec, fmtAmt, makeCashAct, sortAndNumber, tradeFinalCash } from "../common";
 import type { ActivityImportEx, SkippedRow, TransformResult } from "../types";
+import { msg, type Msg } from "../i18n";
 import { FORMAT_LABEL } from "../formats";
 import { tradeFee, type PdfBroker, type PdfParseResult, type PdfTransaction } from "./model";
 
@@ -20,7 +21,7 @@ const GROUP_PREFIX: Record<PdfBroker, string> = {
   dkb: "pdf-dkb",
 };
 
-const ADD_MANUALLY = "Add it manually in Wealthfolio, or import the broker's CSV export for this period instead.";
+const ADD_MANUALLY = msg("skip.pdf.hint.addManually");
 
 export function transformPdfs(
   files: PdfFile[],
@@ -41,7 +42,11 @@ export function transformPdfs(
         description: file,
         reason: result.reason,
         kind: "missing",
-        hint: ADD_MANUALLY,
+        hint: ADD_MANUALLY.text,
+        typeKey: result.titleKey,
+        reasonKey: result.reasonKey,
+        hintKey: ADD_MANUALLY.key,
+        params: result.params,
       });
       continue;
     }
@@ -52,7 +57,8 @@ export function transformPdfs(
         type: tx.label,
         category: "PDF",
         description: `${file} - ${tx.name}`,
-        reason: "The same statement was uploaded more than once; it is imported once.",
+        reason: msg("skip.pdf.duplicate").text,
+        reasonKey: "skip.pdf.duplicate",
         kind: "netted",
       });
       continue;
@@ -142,14 +148,14 @@ function txActivities(tx: PdfTransaction, groupId: string, cashAccountId: string
 
 // Which broker a set of parsed PDFs belongs to: every recognised statement
 // must come from the same one, since they import into that broker's accounts.
-export function pdfBroker(files: PdfFile[]): { ok: true; broker: PdfBroker } | { ok: false; error: string } {
+export function pdfBroker(files: PdfFile[]): { ok: true; broker: PdfBroker } | { ok: false; error: Msg } {
   const brokers = new Set(files.map((f) => f.result.broker).filter((b): b is PdfBroker => b !== null));
   if (brokers.size === 0) {
-    return { ok: false, error: "None of the PDFs is a statement from Trade Republic, Scalable Capital or DKB." };
+    return { ok: false, error: msg("upload.noPdfBroker") };
   }
   if (brokers.size > 1) {
     const names = [...brokers].map((b) => FORMAT_LABEL[b]).join(", ");
-    return { ok: false, error: `The PDFs come from different brokers (${names}). Upload the statements of one broker at a time.` };
+    return { ok: false, error: msg("upload.mixedBrokers", { names }) };
   }
   return { ok: true, broker: [...brokers][0] };
 }

@@ -1,4 +1,5 @@
 import { isDkb, parseDkb } from "./dkb";
+import { msg } from "../i18n";
 import { unsupported, type PdfParseResult } from "./model";
 import { isScalable, parseScalable } from "./scalable";
 import { isTradeRepublic, parseTradeRepublic } from "./tradeRepublic";
@@ -10,5 +11,5 @@ export function parsePdfText(text: string): PdfParseResult {
   if (isTradeRepublic(text)) return parseTradeRepublic(text);
   if (isScalable(text)) return parseScalable(text);
   if (isDkb(text)) return parseDkb(text);
-  return unsupported(null, "Unknown document", "Not a statement from Trade Republic, Scalable Capital or DKB.");
+  return unsupported(null, msg("skip.pdf.unknownTitle"), msg("skip.pdf.notStatement"));
 }

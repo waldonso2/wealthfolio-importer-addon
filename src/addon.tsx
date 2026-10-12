@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { AddonContext, AddonRouteRenderContext } from "@wealthfolio/addon-sdk";
+import { registerTranslations, type AddonContext, type AddonRouteRenderContext } from "@wealthfolio/addon-sdk";
+import { resources, useT } from "./i18n";
 import { ImportPage } from "./ImportPage";
 import { SettingsPage } from "./SettingsPage";
 
@@ -25,6 +26,9 @@ function SettingsWrapper({ ctx }: { ctx: AddonContext }) {
 }
 
 export default function enable(ctx: AddonContext) {
+  // Before the first render; the language follows Wealthfolio's setting (#74).
+  registerTranslations(resources);
+
   const sidebarItem = ctx.sidebar.addItem({
     id: ADDON_ID,
     label: "Broker Import",
@@ -70,6 +74,7 @@ export default function enable(ctx: AddonContext) {
 }
 
 function Nav({ ctx }: { ctx: AddonContext }) {
+  const { t } = useT();
   const current = typeof window !== "undefined" ? window.location.pathname : "";
   const base = `/addon/${ADDON_ID}`;
 
@@ -91,8 +96,8 @@ function Nav({ ctx }: { ctx: AddonContext }) {
 
   return (
     <div className="flex items-center gap-1 px-6 pb-2 pt-6">
-      {link(`${base}/import`, "Import")}
-      {link(`${base}/settings`, "Settings")}
+      {link(`${base}/import`, t("nav.import"))}
+      {link(`${base}/settings`, t("nav.settings"))}
     </div>
   );
 }

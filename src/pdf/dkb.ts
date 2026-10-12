@@ -1,3 +1,4 @@
+import { msg } from "../i18n";
 import {
   AMOUNT,
   DATE,
@@ -7,6 +8,7 @@ import {
   lines,
   parseNum,
   round2,
+  knownOrUnknown,
   unsupported,
   validated,
   type PdfParseResult,
@@ -40,7 +42,7 @@ export function parseDkb(text: string): PdfParseResult {
   const ls = lines(text);
   const num = (s: string) => parseNum(s, ",");
   if (ls.some((l) => /^Storno\b/.test(l))) {
-    return unsupported("dkb", "Storno", "Cancellations (Storno) are not supported - leave both documents out.");
+    return unsupported("dkb", "Storno", msg("skip.pdf.storno"));
   }
   const position = findPosition(ls);
   const name = position?.[3] ?? "";
@@ -52,13 +54,13 @@ export function parseDkb(text: string): PdfParseResult {
     const kind = trade[1] === "Kauf" || trade[1].startsWith("Ausgabe") ? "BUY" : "SELL";
     const title = `${trade[1]} ${name}`.trim();
     if (!position || !position[1].startsWith("St")) {
-      return unsupported("dkb", title, "Only securities quoted per piece are supported (no bonds quoted in percent).");
+      return unsupported("dkb", title, msg("skip.pdf.dkbPerPiece"));
     }
     const when = first(ls, new RegExp(`^Schlusstag(?:/-Zeit)? (${DATE})(?: (\\d{2}:\\d{2}:\\d{2}))?`));
     const value = first(ls, new RegExp(`^Kurswert (${AMOUNT})-? ([A-Z]{3})$`));
     const total = first(ls, new RegExp(`^Ausmachender Betrag (${AMOUNT})[-+]? ([A-Z]{3})$`));
-    if (!when || !value || !total) return unsupported("dkb", title, "Trade date, market value or booked amount not found.");
-    if (value[2] !== total[2]) return unsupported("dkb", title, "Market value and booked amount are in different currencies.");
+    if (!when || !value || !total) return unsupported("dkb", title, msg("skip.pdf.dkbTradeFields"));
+    if (value[2] !== total[2]) return unsupported("dkb", title, msg("skip.pdf.dkbCurrencies"));
     let tax = 0;
     for (const l of ls) {
       const m = TAX_LINE.exec(l);
@@ -88,12 +90,12 @@ export function parseDkb(text: string): PdfParseResult {
   if (income) {
     const label = income[1];
     const title = `${label} ${name}`.trim();
-    if (!position || !position[1].startsWith("St")) return unsupported("dkb", title, "No share position found.");
+    if (!position || !position[1].startsWith("St")) return unsupported("dkb", title, msg("skip.pdf.dkbNoPosition"));
     const total = first(ls, new RegExp(`^Ausmachender Betrag (${AMOUNT})\\+? ([A-Z]{3})$`));
     const valueDate = first(ls, new RegExp(`(?:Wertstellung|Valuta) (${DATE})`));
     const rate = first(ls, new RegExp(`^Devisenkurs [A-Z]{3} / [A-Z]{3} (${AMOUNT})`));
     const reference = first(ls, /Abrechnungsnr\. (\d+)/);
-    if (!total || !valueDate) return unsupported("dkb", title, "Booked amount or value date not found.");
+    if (!total || !valueDate) return unsupported("dkb", title, msg("skip.pdf.dkbNoAmount"));
     const gross = num(income[4]);
     const net = num(total[1]);
     const tx: PdfTransaction = {
@@ -117,7 +119,7 @@ export function parseDkb(text: string): PdfParseResult {
   const known = ls.find((l) => /^(Zinsgutschrift|Vorabpauschale|Halbjahresabrechnung Sparplan|Kontoauszug|Depotbuchung)\b/.test(l));
   return unsupported(
     "dkb",
-    known ?? "Unknown document",
-    "Only trade statements (Wertpapier Abrechnung Kauf/Verkauf) and dividend statements are supported.",
+    knownOrUnknown(known),
+    msg("skip.pdf.dkbOnly"),
   );
 }
