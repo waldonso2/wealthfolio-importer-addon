@@ -1,6 +1,6 @@
 {
   "name": "broker-importer-addon",
-  "version": "3.9.1",
+  "version": "3.9.2",
   "description": "Import Trade Republic and Scalable Capital CSV exports and PDF statements (incl. DKB) into Wealthfolio",
   "type": "module",
   "main": "dist/addon.js",
@@ -27,11 +27,12 @@
     "dev:server": "wealthfolio dev",
     "clean": "rm -rf dist",
     "bundle": "pnpm build && zip dist/broker-importer-addon.zip manifest.json dist/addon.js README.md",
-    "lint": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
     "type-check": "tsc --noEmit",
     "check:versions": "node scripts/check-versions.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "papaparse": "^5.7.0",
@@ -44,19 +45,27 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/react": "^16.3.3",
     "@types/node": "^24.13.3",
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.0",
+    "@vitest/coverage-v8": "4.1.11",
     "@wealthfolio/addon-dev-tools": "^3.9.0",
     "@wealthfolio/addon-sdk": "^3.9.0",
     "@wealthfolio/ui": "^3.9.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
+    "jsdom": "^26.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },

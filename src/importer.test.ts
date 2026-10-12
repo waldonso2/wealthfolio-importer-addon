@@ -11,11 +11,13 @@ import {
   importButtonLabel,
   matchExisting,
   accountsToMatch,
+  findExistingMatches,
   runImport,
   selectCandidates,
   type ActivitiesApi,
 } from "./importer";
 import type { ActivityImportEx, SecurityMapping } from "./types";
+import contract from "../contract/dedup/cases.json";
 
 function act(overrides: Partial<ActivityImportEx>): ActivityImportEx {
   return {
@@ -241,12 +243,11 @@ describe("matchExisting", () => {
     expect(accountsToMatch(pdfBuy)).toEqual(["portfolio"]);
   });
 
-  it("no match for another day, other shares, another amount, security or account", () => {
+  it("no match for another day, other shares, another amount or account", () => {
     for (const o of [
       { date: new Date("2024-01-03T10:00:00.000Z") },
       { quantity: "3" },
       { amount: "250" },
-      { assetSymbol: "IE0002", assetId: "asset-2" },
       { accountId: "other" },
     ]) {
       expect(matchExisting(pdfBuy, [existing(o)], groups).size).toBe(0);
@@ -269,6 +270,29 @@ describe("matchExisting", () => {
       new Map(),
     );
     expect([...m.keys()]).toEqual([1]);
+  });
+
+  it("a trade under another symbol matches (the sync books under the ISIN, an import under the ticker)", () => {
+    expect(matchExisting(pdfBuy, [existing({ assetSymbol: "IE0002", assetId: "asset-2" })], groups).size).toBe(3);
+  });
+
+  it("cash activities booked by the sync service are recognised (#65)", () => {
+    const csv = [
+      act({ lineNumber: 1, accountId: "cash", symbol: "$CASH-EUR", activityType: "DEPOSIT", amount: "500", date: "2024-02-01T09:00:00.000Z" }),
+      act({ lineNumber: 2, accountId: "cash", symbol: "$CASH-EUR", activityType: "WITHDRAWAL", amount: "12.9", date: "2024-02-02T12:00:00.000Z" }),
+      act({ lineNumber: 3, accountId: "cash", symbol: "$CASH-EUR", activityType: "WITHDRAWAL", amount: "12.9", date: "2024-02-02T18:00:00.000Z" }),
+      act({ lineNumber: 4, accountId: "cash", symbol: "$CASH-EUR", activityType: "INTEREST", amount: "3.21", date: "2024-02-03T00:00:00.000Z" }),
+    ] as ActivityImport[];
+    const synced = [
+      existing({ id: "s1", accountId: "cash", activityType: "DEPOSIT", amount: "500", quantity: "1", unitPrice: "1", assetId: "", assetSymbol: "", date: new Date("2024-02-01T08:00:00.000Z"), comment: "Einzahlung [SYNC tr:a]" }),
+      existing({ id: "s2", accountId: "cash", activityType: "WITHDRAWAL", amount: "12.9", quantity: "1", unitPrice: "1", assetId: "", assetSymbol: "", date: new Date("2024-02-02T12:00:00.000Z"), comment: "Karte [SYNC tr:b]" }),
+      existing({ id: "s3", accountId: "cash", activityType: "INTEREST", amount: "3.21", quantity: "1", unitPrice: "1", assetId: "", assetSymbol: "", date: new Date("2024-02-02T22:00:00.000Z"), comment: "Zinsen [SYNC tr:c]" }),
+    ];
+    const m = matchExisting(csv, synced, new Map());
+    // The second card payment of 12.90 is new: only one is in Wealthfolio.
+    expect([...m.keys()].sort()).toEqual([1, 2, 4]);
+    expect(m.get(2)).toEqual([2]);
+    expect(accountsToMatch(csv)).toEqual(["cash"]);
   });
 
   it("leaves checkImport duplicates and the activity they point to alone", () => {
@@ -303,4 +327,17 @@ describe("errorMessage / failedAsCsv", () => {
       '2024-01-01T10:00:00,TR Portfolio,BUY,IE0001,2,201,EUR,"Fund, ""Acc""",bad',
     ]);
   });
+});
+
+// The cases shared with the Wealthfolio Broker Sync service (its dedup.ExistingIndex): both must recognise the
+// same activities as already in Wealthfolio. The service's copy of contract/dedup/cases.json is the leading one.
+describe("shared duplicate-detection cases", () => {
+  for (const c of contract.cases) {
+    it(c.name, () => {
+      const incoming = c.incoming.map((a) => ({ ...a, key: a.line }));
+      const found = findExistingMatches(incoming, c.existing);
+      const got = Object.fromEntries(c.incoming.map((a) => [String(a.line), found.get(a.line) ?? null]));
+      expect(got).toEqual(c.expect);
+    });
+  }
 });

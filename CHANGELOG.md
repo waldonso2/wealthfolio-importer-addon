@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.9.2] - 2026-10-12
+
+### Fixed
+
+- **Cash bookings are no longer imported twice after the broker sync service** (#65): deposits, withdrawals, card payments, interest, fees, taxes and tax refunds that are already in Wealthfolio (from the other file or from the broker sync service) are now recognised in the review and skipped by default, like trades and dividends. Two equal card payments on the same day are both kept when only one exists.
+- A trade already booked under another symbol (e.g. under its ISIN by the broker sync service) is recognised as well; a dividend under another symbol only when it is the only candidate.
+
+### Changed
+
+- The rules for recognising existing activities are shared with the broker sync service and tested against the same cases in both projects (#69).
+- Stricter automatic checks: ESLint, test coverage and tests of the pages (#70).
+
 ## [3.9.1] - 2026-10-10
 
 ### Added

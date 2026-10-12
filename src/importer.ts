@@ -88,12 +88,23 @@ export function selectCandidates(
 
 // ── Already in Wealthfolio from another source ──────────────────────────────
 // checkImport only recognises an activity imported from the same source (same
-// comment and amount). A trade or dividend imported once from the CSV export
-// and once from the PDF statement differs in comment and time, so it would be
-// created twice. matchExisting finds such activities by their substance:
-// account, type, security, day, shares and amount.
+// comment and amount). The same transaction imported once from the CSV export
+// and once from the PDF statement - or booked by the Wealthfolio Broker Sync
+// service - differs in comment and time, so it would be created twice.
+// findExistingMatches recognises such activities by their substance, with the
+// same rules as the sync service's dedup.ExistingIndex; both run the shared cases
+// in contract/dedup/cases.json:
+//   same account, type and subtype, at most 36 hours apart, amount within 0.02;
+//   trades also the same share count. The security should match too, but an
+//   import books it under the mapped ticker and the sync under the ISIN: a trade
+//   with another symbol still matches (shares, amount and time pin it down), a
+//   dividend only when it is the only candidate. Cash activities (deposits,
+//   withdrawals, card payments, interest, fees, taxes, credits) match on
+//   account, type, subtype, amount and time. Transfers are left to their pair.
+//   Each existing activity matches at most once.
 
-const MATCH_TYPES = new Set(["BUY", "SELL", "DIVIDEND"]);
+const MATCH_TYPES = new Set(["BUY", "SELL", "DIVIDEND", "DEPOSIT", "WITHDRAWAL", "INTEREST", "FEE", "TAX", "CREDIT"]);
+const TRADE_TYPES = new Set(["BUY", "SELL", "DIVIDEND"]);
 // CSV timestamps and PDF execution/payment times of the same transaction lie
 // within a day of each other (time zone, noon for dividends).
 const MATCH_WINDOW_MS = 36 * 60 * 60 * 1000;
@@ -106,45 +117,97 @@ const toNum = (v: unknown) => {
   return Number.isFinite(n) ? n : NaN;
 };
 
-function existingAmount(e: ActivityDetails): number {
+function existingAmount(e: ExistingLike): number {
   const amount = toNum(e.amount);
   if (!Number.isNaN(amount)) return Math.abs(amount);
   return Math.abs(toNum(e.quantity) * toNum(e.unitPrice));
 }
 
+// What findExistingMatches needs of an activity in Wealthfolio and of a new one.
+export interface ExistingLike {
+  id: string;
+  accountId: string;
+  activityType: string;
+  subtype?: string | null;
+  date: Date | string;
+  quantity?: unknown;
+  unitPrice?: unknown;
+  amount?: unknown;
+  assetId?: string | null;
+  assetSymbol?: string | null;
+}
+export interface IncomingLike {
+  key: number;
+  accountId: string;
+  activityType: string;
+  subtype?: string | null;
+  date: Date | string;
+  quantity?: unknown;
+  amount?: unknown;
+  symbol?: string | null;
+  assetId?: string | null;
+}
+
+// The existing activity each incoming one already is (key -> existing id), in order.
+export function findExistingMatches(incoming: IncomingLike[], existing: ExistingLike[]): Map<number, string> {
+  const used = new Set<string>();
+  const result = new Map<number, string>();
+  for (const a of incoming) {
+    if (!MATCH_TYPES.has(a.activityType)) continue;
+    const time = new Date(String(a.date)).getTime();
+    const amount = Math.abs(toNum(a.amount));
+    const quantity = Math.abs(toNum(a.quantity));
+    const cash = !a.symbol || isCashSymbol(a.symbol);
+    const candidates = existing.filter((e) => {
+      if (used.has(e.id) || e.accountId !== a.accountId || e.activityType !== a.activityType) return false;
+      if ((e.subtype || null) !== (a.subtype || null)) return false;
+      if (Math.abs(new Date(String(e.date)).getTime() - time) > MATCH_WINDOW_MS) return false;
+      if (!(Math.abs(existingAmount(e) - amount) <= AMOUNT_TOLERANCE)) return false;
+      if (a.activityType === "BUY" || a.activityType === "SELL") {
+        return Math.abs(Math.abs(toNum(e.quantity)) - quantity) < 1e-9;
+      }
+      return true;
+    });
+    const sameSecurity = (e: ExistingLike) =>
+      cash ||
+      (!!a.assetId && e.assetId === a.assetId) ||
+      (!!a.symbol && (e.assetSymbol === a.symbol || e.assetId === a.symbol));
+    let match = candidates.find(sameSecurity);
+    if (!match && !cash && (a.activityType !== "DIVIDEND" || candidates.length === 1)) match = candidates[0];
+    if (!match) continue;
+    used.add(match.id);
+    result.set(a.key, match.id);
+  }
+  return result;
+}
+
 // Lines of `checked` that already exist in Wealthfolio under another source,
-// each mapped to every line of its transaction (the trade or dividend plus its
-// transfer legs and a tax-refund credit), so the whole
-// transaction is skipped or included together. Activities checkImport already
-// flags as duplicates are left to that mechanism; the existing activities they
-// point to can't match a second time.
+// each mapped to every line of its transaction (a trade or dividend plus its
+// transfer legs and a tax-refund credit; a cash activity on its own), so the
+// whole transaction is skipped or included together. Activities checkImport
+// already flags as duplicates are left to that mechanism; the existing
+// activities they point to can't match a second time.
 export function matchExisting(
   checked: ActivityImport[],
   existing: ActivityDetails[],
   groupIdByLine: Map<number, string>,
 ): Map<number, number[]> {
   const claimed = new Set(checked.map((a) => a.duplicateOfId).filter(Boolean));
-  const pool = existing.filter((e) => MATCH_TYPES.has(e.activityType) && !claimed.has(e.id));
-  const used = new Set<string>();
+  const pool = existing.filter((e) => MATCH_TYPES.has(e.activityType) && !claimed.has(e.id)) as ExistingLike[];
+  const incoming: IncomingLike[] = checked
+    .filter((a) => a.lineNumber != null && MATCH_TYPES.has(a.activityType) && activityStatus(a) === "valid")
+    .map((a) => ({ ...a, key: a.lineNumber as number, date: String(a.date) }) as IncomingLike);
+  const found = findExistingMatches(incoming, pool);
   const result = new Map<number, number[]>();
 
   for (const a of checked) {
-    if (a.lineNumber == null || !MATCH_TYPES.has(a.activityType) || activityStatus(a) !== "valid") continue;
+    if (a.lineNumber == null || !found.has(a.lineNumber)) continue;
+    if (!TRADE_TYPES.has(a.activityType)) {
+      result.set(a.lineNumber, [a.lineNumber]);
+      continue;
+    }
     const time = new Date(String(a.date)).getTime();
     const amount = Math.abs(toNum(a.amount));
-    const quantity = Math.abs(toNum(a.quantity));
-    const match = pool.find((e) => {
-      if (used.has(e.id) || e.accountId !== a.accountId || e.activityType !== a.activityType) return false;
-      const sameAsset = (!!a.assetId && e.assetId === a.assetId) || (!!a.symbol && e.assetSymbol === a.symbol);
-      if (!sameAsset) return false;
-      if (Math.abs(new Date(e.date).getTime() - time) > MATCH_WINDOW_MS) return false;
-      if (Math.abs(existingAmount(e) - amount) > AMOUNT_TOLERANCE) return false;
-      // Dividends: the CSV exports book the quantity differently (shares or 1).
-      return a.activityType === "DIVIDEND" || Math.abs(Math.abs(toNum(e.quantity)) - quantity) < 1e-6;
-    });
-    if (!match) continue;
-    used.add(match.id);
-
     // The transaction's other lines: the transfer pair that funds or sweeps it
     // (its leg on this account, seconds apart, over the same amount - the
     // trade itself carries no group id) and a tax-refund credit at the same
@@ -164,7 +227,7 @@ export function matchExisting(
           o.lineNumber != null &&
           (o === a ||
             groups.has(groupIdByLine.get(o.lineNumber) ?? "") ||
-            (o.activityType === "CREDIT" && o.subtype === "TAX_REFUND" && near(o))),
+            (o.activityType === "CREDIT" && o.subtype === "TAX_REFUND" && near(o) && !found.has(o.lineNumber))),
       )
       .map((o) => o.lineNumber as number);
     for (const ln of lines) result.set(ln, lines);
@@ -173,7 +236,7 @@ export function matchExisting(
 }
 
 // The accounts whose existing activities matchExisting needs: those holding
-// trades and dividends in this import.
+// trades, dividends and cash activities in this import.
 export function accountsToMatch(checked: ActivityImport[]): string[] {
   return [...new Set(checked.filter((a) => MATCH_TYPES.has(a.activityType)).map((a) => a.accountId))];
 }

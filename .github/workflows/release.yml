@@ -31,6 +31,8 @@ jobs:
 
       - run: pnpm type-check
 
+      - run: pnpm lint
+
       - run: pnpm test
 
       - run: pnpm bundle

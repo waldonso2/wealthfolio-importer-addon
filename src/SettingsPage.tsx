@@ -76,7 +76,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
       setAccounts(accs.filter((a) => a.isActive && !a.isArchived));
       setSettings(s);
     });
-  }, []);
+  }, [ctx]);
 
   if (!settings) {
     return <div className="text-muted-foreground p-6 text-sm">Loading settings…</div>;

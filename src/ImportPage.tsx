@@ -424,7 +424,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       setSettings(s);
       setAccounts(accs.filter((a) => a.isActive && !a.isArchived));
     });
-  }, []);
+  }, [ctx]);
 
   const accountName = useCallback(
     (id: string): string => {
