@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.9.4] - 2026-10-15
+
+### Fixed
+
+- **Existing activities are recognised more precisely** (#100): an activity in another currency is never taken for one already in Wealthfolio, and of several candidates the one nearest in time (then the closest amount) is chosen - the same rules as the broker sync service.
+
+### Changed
+
+- Internal clean-up, nothing changes for you: the settings keep the accounts of each broker in one place, and saved settings of earlier versions are read as before (#79); the import wizard is split into its steps with its state in one tested place (#78).
+
 ## [3.9.3] - 2026-10-12
 
 ### Added

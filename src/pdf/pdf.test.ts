@@ -1,9 +1,9 @@
+import { migrateSettings } from "../settings";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import { reconcile } from "../reconcile";
-import type { AddonSettings } from "../types";
 import { pdfBroker, transformPdfs, type PdfFile } from "./activities";
 import { parsePdfFiles } from "./index";
 import { decimalOf, parseNum, tradeFee, type PdfTransaction } from "./model";
@@ -13,19 +13,14 @@ import { pdfToPages } from "./text";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(__dirname, "../__fixtures__/pdf", name), "utf-8");
 
-const SETTINGS: AddonSettings = {
+const SETTINGS = migrateSettings({
   cashAccountId: "tr-cash",
-  cashCurrency: "EUR",
   portfolioAccountId: "tr-portfolio",
   scalableCashAccountId: "sc-cash",
-  scalableCashCurrency: "EUR",
   scalablePortfolioAccountId: "sc-portfolio",
   dkbCashAccountId: "dkb-cash",
   dkbPortfolioAccountId: "dkb-portfolio",
-  transferPatterns: [],
-  securityMappings: {},
-  securityNames: {},
-};
+});
 
 function tx(name: string): PdfTransaction {
   const r = parsePdfText(fixture(name));
@@ -320,7 +315,7 @@ describe("pdf.js text extraction", () => {
 
     const noDkb = await parsePdfFiles([{ name: "d.pdf", data: linesToPdf(fixture("dkb-kauf.txt")).buffer as ArrayBuffer }], {
       ...SETTINGS,
-      dkbCashAccountId: "",
+      brokers: { ...SETTINGS.brokers, dkb: { ...SETTINGS.brokers.dkb, cashAccountId: "" } },
     });
     expect(noDkb).toMatchObject({ ok: false, error: expect.stringContaining("DKB") });
   });

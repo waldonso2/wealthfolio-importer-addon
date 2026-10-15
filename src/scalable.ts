@@ -1,5 +1,5 @@
 import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag, tradeFinalCash } from "./common";
-import type { ActivityImportEx, AddonSettings, ScRow, SkipKind, SkippedRow, TransformResult } from "./types";
+import type { ActivityImportEx, BrokerConfig, ScRow, SkipKind, SkippedRow, TransformResult } from "./types";
 import { msg, type Msg } from "./i18n";
 
 // Scalable Capital transaction export → Wealthfolio activities.
@@ -122,17 +122,17 @@ function tradeCharges(r: ScRow): { fee: string; tax: string | undefined; refund:
   };
 }
 
-export function transformScalable(input: ScRow[], config: AddonSettings): TransformResult {
+export function transformScalable(input: ScRow[], config: BrokerConfig): TransformResult {
   // Short rows from the CSV parser leave columns undefined; normalise to "".
   const rows: ScRow[] = input.map((r) => {
     const out = { ...r };
     for (const c of COLUMNS) out[c] = (r[c] ?? "").trim();
     return out;
   });
-  const cashAccountId = config.scalableCashAccountId;
-  const portfolioAccountId = config.scalablePortfolioAccountId;
+  const cashAccountId = config.cashAccountId;
+  const portfolioAccountId = config.portfolioAccountId;
   const { transferPatterns } = config;
-  const cashCurrency = config.scalableCashCurrency || "EUR";
+  const cashCurrency = config.cashCurrency || "EUR";
   const cashAct = makeCashAct(cashCurrency);
 
   const activities: ActivityImportEx[] = [];

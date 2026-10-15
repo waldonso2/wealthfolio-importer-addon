@@ -1,3 +1,5 @@
+import { migrateSettings } from "./settings";
+import { brokerConfig } from "./formats";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -5,23 +7,13 @@ import Papa from "papaparse";
 import { describe, expect, it } from "vitest";
 import { isCashSymbol } from "./common";
 import { transform } from "./transform";
-import type { AddonSettings, TrRow } from "./types";
+import type { BrokerConfig, TrRow } from "./types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const CONFIG: AddonSettings = {
-  cashAccountId: "cash",
-  cashCurrency: "EUR",
-  portfolioAccountId: "portfolio",
-  scalableCashAccountId: "",
-  scalableCashCurrency: "EUR",
-  scalablePortfolioAccountId: "",
-  dkbCashAccountId: "",
-  dkbPortfolioAccountId: "",
-  transferPatterns: [],
-  securityMappings: {},
-  securityNames: {},
-};
+// Saved the way settings were before 3.9.4: the migration takes them over (#79).
+const SETTINGS = migrateSettings({ cashAccountId: "cash", cashCurrency: "EUR", portfolioAccountId: "portfolio", transferPatterns: [] });
+const CONFIG = brokerConfig("trade-republic", SETTINGS);
 
 function row(overrides: Partial<TrRow>): TrRow {
   return {
@@ -732,7 +724,7 @@ describe("INTEREST", () => {
 
 describe("Transfer patterns", () => {
   it("matched IBAN on TRANSFER_OUTBOUND produces TRANSFER_OUT (+ optional TRANSFER_IN)", () => {
-    const config: AddonSettings = {
+    const config: BrokerConfig = {
       ...CONFIG,
       transferPatterns: [
         { iban: "DE89370400440532013000", label: "Broker", destinationAccountId: "broker-acc" },
@@ -771,7 +763,7 @@ describe("Transfer patterns", () => {
   });
 
   it("keyword match on TRANSFER_OUTBOUND", () => {
-    const config: AddonSettings = {
+    const config: BrokerConfig = {
       ...CONFIG,
       transferPatterns: [{ keyword: "SALARY", label: "Employer" }],
     };
@@ -791,7 +783,7 @@ describe("Transfer patterns", () => {
   });
 
   it("matched pattern without destinationAccountId → lone TRANSFER_OUT, no group id", () => {
-    const config: AddonSettings = {
+    const config: BrokerConfig = {
       ...CONFIG,
       transferPatterns: [{ keyword: "SALARY", label: "Employer" }],
     };
@@ -811,7 +803,7 @@ describe("Transfer patterns", () => {
   });
 
   it("matched IBAN on CUSTOMER_OUTBOUND_REQUEST produces TRANSFER_OUT + TRANSFER_IN, grouped", () => {
-    const config: AddonSettings = {
+    const config: BrokerConfig = {
       ...CONFIG,
       transferPatterns: [
         { iban: "DE89370400440532013000", label: "Broker", destinationAccountId: "broker-acc" },

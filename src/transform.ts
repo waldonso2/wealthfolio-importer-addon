@@ -1,5 +1,5 @@
 import { addSec, fmtAmt, makeCashAct, matchPattern, sortAndNumber, timeTag, tradeFinalCash } from "./common";
-import type { ActivityImportEx, AddonSettings, SkipKind, SkippedRow, TransformResult, TrRow } from "./types";
+import type { ActivityImportEx, BrokerConfig, SkipKind, SkippedRow, TransformResult, TrRow } from "./types";
 import { msg, type Msg } from "./i18n";
 
 function num(s: string | undefined | null): number {
@@ -84,7 +84,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 //   - WORTHLESS becomes a SELL at 0.
 //   If the file doesn't hold the shares, the rows are skipped rather than
 //   booked with a made-up cost or ratio.
-function planSpecialRows(rows: TrRow[], config: AddonSettings): Map<string, Planned> {
+function planSpecialRows(rows: TrRow[], config: BrokerConfig): Map<string, Planned> {
   const { cashAccountId, portfolioAccountId } = config;
   const cashCurrency = config.cashCurrency || "EUR";
   const cashAct = makeCashAct(cashCurrency);
@@ -357,7 +357,7 @@ export function trBrokerCash(rows: TrRow[]): number {
   return rows.reduce((sum, r) => sum + num(r.amount) + num(r.fee) + num(r.tax), 0);
 }
 
-export function transform(rows: TrRow[], config: AddonSettings): TransformResult {
+export function transform(rows: TrRow[], config: BrokerConfig): TransformResult {
   const { cashAccountId, portfolioAccountId, transferPatterns } = config;
   const cashCurrency = config.cashCurrency || "EUR";
   const cashAct = makeCashAct(cashCurrency);

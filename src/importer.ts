@@ -136,6 +136,7 @@ export interface ExistingLike {
   amount?: unknown;
   assetId?: string | null;
   assetSymbol?: string | null;
+  currency?: string | null;
 }
 export interface IncomingLike {
   key: number;
@@ -147,6 +148,7 @@ export interface IncomingLike {
   amount?: unknown;
   symbol?: string | null;
   assetId?: string | null;
+  currency?: string | null;
 }
 
 // The existing activity each incoming one already is (key -> existing id), in order.
@@ -162,6 +164,8 @@ export function findExistingMatches(incoming: IncomingLike[], existing: Existing
     const candidates = existing.filter((e) => {
       if (used.has(e.id) || e.accountId !== a.accountId || e.activityType !== a.activityType) return false;
       if ((e.subtype || null) !== (a.subtype || null)) return false;
+      // Another currency is another booking - compared when both sides name one (#100).
+      if (e.currency && a.currency && e.currency !== a.currency) return false;
       if (Math.abs(new Date(String(e.date)).getTime() - time) > MATCH_WINDOW_MS) return false;
       if (!(Math.abs(existingAmount(e) - amount) <= AMOUNT_TOLERANCE)) return false;
       if (a.activityType === "BUY" || a.activityType === "SELL") {
@@ -169,6 +173,10 @@ export function findExistingMatches(incoming: IncomingLike[], existing: Existing
       }
       return true;
     });
+    // The nearest in time first, then the closest amount (#100): two equal savings-plan deposits on two days
+    // must each find their own.
+    const gap = (e: ExistingLike) => Math.abs(new Date(String(e.date)).getTime() - time);
+    candidates.sort((x, y) => gap(x) - gap(y) || Math.abs(existingAmount(x) - amount) - Math.abs(existingAmount(y) - amount));
     const sameSecurity = (e: ExistingLike) =>
       cash ||
       (!!a.assetId && e.assetId === a.assetId) ||
