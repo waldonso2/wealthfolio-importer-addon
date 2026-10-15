@@ -1,27 +1,18 @@
+import { migrateSettings } from "./settings";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import { tradeFinalCash } from "./common";
-import { detectFormat, parseAndTransform } from "./formats";
+import { brokerConfig, detectFormat, parseAndTransform } from "./formats";
 import { berlinToIso, deNum, transformScalable } from "./scalable";
-import type { ActivityImportEx, AddonSettings, ScRow } from "./types";
+import type { ActivityImportEx, ScRow } from "./types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const CONFIG: AddonSettings = {
-  cashAccountId: "tr-cash",
-  cashCurrency: "EUR",
-  portfolioAccountId: "tr-portfolio",
-  scalableCashAccountId: "sc-cash",
-  scalableCashCurrency: "EUR",
-  scalablePortfolioAccountId: "sc-portfolio",
-  dkbCashAccountId: "",
-  dkbPortfolioAccountId: "",
-  transferPatterns: [],
-  securityMappings: {},
-  securityNames: {},
-};
+// Saved the way settings were before 3.9.4: the migration takes them over (#79).
+const SETTINGS = migrateSettings({ cashAccountId: "tr-cash", portfolioAccountId: "tr-portfolio", scalableCashAccountId: "sc-cash", scalableCashCurrency: "EUR", scalablePortfolioAccountId: "sc-portfolio", transferPatterns: [] });
+const CONFIG = brokerConfig("scalable", SETTINGS);
 
 function row(overrides: Partial<ScRow>): ScRow {
   return {
@@ -302,14 +293,17 @@ describe("format detection", () => {
   });
 
   it("rejects a format whose accounts are not configured", () => {
-    const out = parseAndTransform("Datum;Uhrzeit;Typ\r\n", { ...CONFIG, scalableCashAccountId: "" });
+    const out = parseAndTransform("Datum;Uhrzeit;Typ\r\n", {
+      ...SETTINGS,
+      brokers: { ...SETTINGS.brokers, scalable: { ...SETTINGS.brokers.scalable, cashAccountId: "" } },
+    });
     expect(out.ok).toBe(false);
   });
 });
 
 describe("Scalable CSV fixture integration", () => {
   const text = readFileSync(join(__dirname, "__fixtures__/scalable-sample.csv"), "utf-8");
-  const outcome = parseAndTransform(text, CONFIG);
+  const outcome = parseAndTransform(text, SETTINGS);
   if (!outcome.ok) throw new Error(outcome.error);
   const { activities, skipped } = outcome.result;
 

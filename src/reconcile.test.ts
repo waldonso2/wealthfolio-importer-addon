@@ -1,26 +1,16 @@
+import { migrateSettings } from "./settings";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 import { parseAndTransform } from "./formats";
 import { cashDifference, cashEffect, reconcile } from "./reconcile";
-import type { ActivityImportEx, AddonSettings } from "./types";
+import type { ActivityImportEx } from "./types";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const CONFIG: AddonSettings = {
-  cashAccountId: "cash",
-  cashCurrency: "EUR",
-  portfolioAccountId: "portfolio",
-  scalableCashAccountId: "sc-cash",
-  scalableCashCurrency: "EUR",
-  scalablePortfolioAccountId: "sc-portfolio",
-  dkbCashAccountId: "",
-  dkbPortfolioAccountId: "",
-  transferPatterns: [],
-  securityMappings: {},
-  securityNames: {},
-};
+// Saved the way settings were before 3.9.4: the migration takes them over (#79).
+const SETTINGS = migrateSettings({ cashAccountId: "cash", cashCurrency: "EUR", portfolioAccountId: "portfolio", scalableCashAccountId: "sc-cash", scalablePortfolioAccountId: "sc-portfolio", transferPatterns: [] });
 const TR = { cashAccountId: "cash", portfolioAccountId: "portfolio" };
 
 function act(overrides: Partial<ActivityImportEx>): ActivityImportEx {
@@ -117,7 +107,7 @@ describe("reconcile", () => {
 describe("fixtures: imported cash account vs. the broker's balance", () => {
   it("Trade Republic", () => {
     const csv = readFileSync(join(__dirname, "__fixtures__/tr-sample.csv"), "utf-8");
-    const outcome = parseAndTransform(csv, CONFIG);
+    const outcome = parseAndTransform(csv, SETTINGS);
     if (!outcome.ok) throw new Error(outcome.error);
     const r = reconcile(outcome.result.activities, TR, outcome.brokerCash);
     expect(outcome.brokerCash?.currency).toBe("EUR");
@@ -128,7 +118,7 @@ describe("fixtures: imported cash account vs. the broker's balance", () => {
 
   it("Scalable Capital", () => {
     const csv = readFileSync(join(__dirname, "__fixtures__/scalable-sample.csv"), "utf-8");
-    const outcome = parseAndTransform(csv, CONFIG);
+    const outcome = parseAndTransform(csv, SETTINGS);
     if (!outcome.ok) throw new Error(outcome.error);
     const r = reconcile(
       outcome.result.activities,

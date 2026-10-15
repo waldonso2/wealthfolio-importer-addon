@@ -20,7 +20,11 @@ import { rich, useT } from "./i18n";
 import { RemapPanel } from "./RemapPanel";
 import { mappingLabel, mappingWarning } from "./remap";
 import { loadSettings, saveSettings } from "./settings";
-import type { AddonSettings, SecurityMapping, TransferPattern } from "./types";
+import { FORMATS, type ImportFormat } from "./formats";
+import type { AddonSettings, BrokerAccounts, SecurityMapping, TransferPattern } from "./types";
+
+// The texts of a broker's account card: settings.<key>.title/intro/cash/cashHelp/securities (src/i18n.ts).
+const SETTINGS_TEXT: Record<ImportFormat, string> = { "trade-republic": "tr", scalable: "sc", dkb: "dkb" };
 
 function AccountSelect({
   accounts,
@@ -116,20 +120,14 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
     setSettings((s) => ({ ...s!, securityMappings: { ...s!.securityMappings, [isin]: mapping } }));
   };
 
-  const securitiesAccounts = [
-    settings.portfolioAccountId,
-    settings.scalablePortfolioAccountId,
-    settings.dkbPortfolioAccountId,
-  ].filter(Boolean);
+  const securitiesAccounts = FORMATS.map((f) => settings.brokers[f].portfolioAccountId).filter(Boolean);
   const accountName = (id: string) => accounts.find((a) => a.id === id)?.name ?? id;
 
   const handleSave = async () => {
-    const tr = [settings.cashAccountId, settings.portfolioAccountId];
-    const sc = [settings.scalableCashAccountId, settings.scalablePortfolioAccountId];
-    const dkb = [settings.dkbCashAccountId, settings.dkbPortfolioAccountId];
+    const pairs = FORMATS.map((f) => [settings.brokers[f].cashAccountId, settings.brokers[f].portfolioAccountId]);
     const complete = (pair: string[]) => pair.every(Boolean);
     const partial = (pair: string[]) => pair.some(Boolean) && !complete(pair);
-    if ([tr, sc, dkb].some(partial) || ![tr, sc, dkb].some(complete)) {
+    if (pairs.some(partial) || !pairs.some(complete)) {
       setError(t("settings.incomplete"));
       return;
     }
@@ -154,107 +152,50 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
         <p className="text-muted-foreground mt-1 text-sm">{t("settings.intro")}</p>
       </div>
 
-      {/* Accounts */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("settings.tr.title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-xs">{t("settings.tr.intro")}</p>
-          <div className="space-y-1">
-            <Label>{t("settings.tr.cash")}</Label>
-            <AccountSelect
-              accounts={accounts}
-              value={settings.cashAccountId}
-              onChange={(v) => {
-                const acc = accounts.find((a) => a.id === v);
-                set({ cashAccountId: v, cashCurrency: acc?.currency ?? "EUR" });
-              }}
-              placeholder={t("settings.selectCash")}
-              filterType="CASH"
-            />
-            <p className="text-muted-foreground text-xs">{t("settings.tr.cashHelp")}</p>
-          </div>
-          <div className="space-y-1">
-            <Label>{t("settings.tr.securities")}</Label>
-            <AccountSelect
-              accounts={accounts}
-              value={settings.portfolioAccountId}
-              onChange={(v) => set({ portfolioAccountId: v })}
-              placeholder={t("settings.selectSecurities")}
-              filterType="SECURITIES"
-            />
-            <p className="text-muted-foreground text-xs">{t("settings.tr.securitiesHelp")}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Scalable Capital accounts */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("settings.sc.title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-xs">{t("settings.sc.intro")}</p>
-          <div className="space-y-1">
-            <Label>{t("settings.sc.cash")}</Label>
-            <AccountSelect
-              accounts={accounts}
-              value={settings.scalableCashAccountId}
-              onChange={(v) => {
-                const acc = accounts.find((a) => a.id === v);
-                set({ scalableCashAccountId: v, scalableCashCurrency: acc?.currency ?? "EUR" });
-              }}
-              placeholder={t("settings.selectCash")}
-              filterType="CASH"
-            />
-            <p className="text-muted-foreground text-xs">{t("settings.sc.cashHelp")}</p>
-          </div>
-          <div className="space-y-1">
-            <Label>{t("settings.sc.securities")}</Label>
-            <AccountSelect
-              accounts={accounts}
-              value={settings.scalablePortfolioAccountId}
-              onChange={(v) => set({ scalablePortfolioAccountId: v })}
-              placeholder={t("settings.selectSecurities")}
-              filterType="SECURITIES"
-            />
-            <p className="text-muted-foreground text-xs">{t("settings.securitiesHelpPair")}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* DKB accounts */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("settings.dkb.title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground text-xs">{t("settings.dkb.intro")}</p>
-          <div className="space-y-1">
-            <Label>{t("settings.dkb.cash")}</Label>
-            <AccountSelect
-              accounts={accounts}
-              value={settings.dkbCashAccountId}
-              onChange={(v) => set({ dkbCashAccountId: v })}
-              placeholder={t("settings.selectCash")}
-              filterType="CASH"
-            />
-            <p className="text-muted-foreground text-xs">{t("settings.dkb.cashHelp")}</p>
-          </div>
-          <div className="space-y-1">
-            <Label>{t("settings.dkb.securities")}</Label>
-            <AccountSelect
-              accounts={accounts}
-              value={settings.dkbPortfolioAccountId}
-              onChange={(v) => set({ dkbPortfolioAccountId: v })}
-              placeholder={t("settings.selectSecurities")}
-              filterType="SECURITIES"
-            />
-            <p className="text-muted-foreground text-xs">{t("settings.securitiesHelpPair")}</p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Accounts: one card per broker (#79) */}
+      {FORMATS.map((format) => {
+        const k = SETTINGS_TEXT[format];
+        const pair = settings.brokers[format];
+        const setPair = (patch: Partial<BrokerAccounts>) =>
+          set({ brokers: { ...settings.brokers, [format]: { ...pair, ...patch } } });
+        return (
+          <Card key={format}>
+            <CardHeader>
+              <CardTitle className="text-base">{t(`settings.${k}.title`)}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-muted-foreground text-xs">{t(`settings.${k}.intro`)}</p>
+              <div className="space-y-1">
+                <Label>{t(`settings.${k}.cash`)}</Label>
+                <AccountSelect
+                  accounts={accounts}
+                  value={pair.cashAccountId}
+                  onChange={(v) => {
+                    const acc = accounts.find((a) => a.id === v);
+                    setPair({ cashAccountId: v, cashCurrency: acc?.currency ?? "EUR" });
+                  }}
+                  placeholder={t("settings.selectCash")}
+                  filterType="CASH"
+                />
+                <p className="text-muted-foreground text-xs">{t(`settings.${k}.cashHelp`)}</p>
+              </div>
+              <div className="space-y-1">
+                <Label>{t(`settings.${k}.securities`)}</Label>
+                <AccountSelect
+                  accounts={accounts}
+                  value={pair.portfolioAccountId}
+                  onChange={(v) => setPair({ portfolioAccountId: v })}
+                  placeholder={t("settings.selectSecurities")}
+                  filterType="SECURITIES"
+                />
+                <p className="text-muted-foreground text-xs">
+                  {t(format === "trade-republic" ? "settings.tr.securitiesHelp" : "settings.securitiesHelpPair")}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })}
 
       {/* Transfer patterns */}
       <Card>

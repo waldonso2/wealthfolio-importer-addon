@@ -1,4 +1,5 @@
 import type { ActivityImport, SymbolSearchResult } from "@wealthfolio/addon-sdk";
+import type { ImportFormat } from "./formats";
 import type { Params } from "./i18n";
 
 export interface TrRow {
@@ -56,18 +57,21 @@ export interface TransferPattern {
 // ctx.api.market.searchTicker) or "custom" to keep the ISIN as the symbol.
 export type SecurityMapping = SymbolSearchResult | "custom";
 
-export interface AddonSettings {
+// The Wealthfolio account pair a broker imports into (its CSV export and its PDF statements alike), and the
+// currency of its cash account.
+export interface BrokerAccounts {
   cashAccountId: string;
-  cashCurrency: string;
   portfolioAccountId: string;
-  // Scalable Capital uses its own cash/securities account pair so that users of
-  // both brokers don't mix the two into the same Wealthfolio accounts.
-  scalableCashAccountId: string;
-  scalableCashCurrency: string;
-  scalablePortfolioAccountId: string;
-  // DKB has no CSV import; its PDF statements import into this pair.
-  dkbCashAccountId: string;
-  dkbPortfolioAccountId: string;
+  cashCurrency: string;
+}
+
+// What a transformer gets: the broker's accounts and the transfer patterns.
+export type BrokerConfig = BrokerAccounts & { transferPatterns: TransferPattern[] };
+
+export interface AddonSettings {
+  // One account pair per broker (#79), so users of several brokers never mix them. Settings saved before 3.9.4
+  // (named fields per broker) are taken over on load (settings.ts).
+  brokers: Record<ImportFormat, BrokerAccounts>;
   transferPatterns: TransferPattern[];
   // ISIN -> resolved mapping, persisted so recurring imports of the same
   // security don't require re-mapping every time.

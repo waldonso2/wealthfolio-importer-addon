@@ -28,7 +28,9 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 |---|---|
 | `src/transform.ts` | Trade Republic: pure CSV-row → ActivityImport mapping |
 | `src/scalable.ts` | Scalable Capital: pure CSV-row → ActivityImport mapping, incl. netting of cancellations/depot migrations and Europe/Berlin → UTC |
-| `src/formats.ts` | Format detection + parsing (delimiter, BOM) and dispatch to the right transformer |
+| `src/formats.ts` | Format detection + parsing (delimiter, BOM) and dispatch to the right transformer via the `CSV_IMPORTERS` registry; `FORMATS`, `formatAccounts`, `brokerConfig` (#79) |
+| `src/settings.ts` / `src/settings.test.ts` | Settings: one `BrokerAccounts` per format in `brokers`; `migrateSettings` reads the old per-broker fields |
+| `src/wizard.ts` / `src/wizard.test.ts`, `src/import/` | The import wizard (#78): state and transitions as a pure reducer; the steps (`UploadStep`, `ConfirmStep`, `DoneStep`, shared `parts`) only show it; `ImportPage.tsx` runs the async work and dispatches |
 | `src/common.ts` | Helpers shared by both transformers (`makeCashAct`, `matchPattern`, `sortAndNumber`, …) |
 | `src/transform.test.ts` | Trade Republic tests (unit + fixture integration) |
 | `src/scalable.test.ts` | Scalable Capital tests (unit + fixture integration), format detection, `tradeFinalCash` |
@@ -87,7 +89,7 @@ Buying a stock moves funds Cash → Portfolio (TRANSFER_OUT / TRANSFER_IN pair) 
 
 The portfolio account must end up holding no cash: every cash-moving activity there (dividend, tax, buy, sell) is in the cash currency and fully swept to/from the cash account. Wealthfolio keeps cash per currency, so a DIVIDEND booked in USD next to an EUR tax and EUR sweep leaves USD cash and an EUR deficit behind — foreign dividends are booked in the payout currency, with the original amount only in the comment.
 
-Scalable Capital uses the same model with its **own** account pair (`scalableCashAccountId` / `scalablePortfolioAccountId` in `AddonSettings`), so users of both brokers never mix them. PDF statements import into the pair of their broker (`formatAccounts`); DKB, which has no CSV import, has its own pair (`dkbCashAccountId` / `dkbPortfolioAccountId`). PDF activities use `pdf-tr-`/`pdf-sc-`/`pdf-dkb-` group IDs and comments ending in `[PDF <docId>]` — part of the duplicate fingerprint, so don't reword them. Every internal pair in `scalable.ts` follows the same `transferGroupId` rule below, with `sc-`-prefixed IDs.
+Scalable Capital uses the same model with its **own** account pair (`AddonSettings.brokers.scalable`), so users of both brokers never mix them. PDF statements import into the pair of their broker (`formatAccounts`); DKB, which has no CSV import, has its own pair (`brokers.dkb`). PDF activities use `pdf-tr-`/`pdf-sc-`/`pdf-dkb-` group IDs and comments ending in `[PDF <docId>]` — part of the duplicate fingerprint, so don't reword them. Every internal pair in `scalable.ts` follows the same `transferGroupId` rule below, with `sc-`-prefixed IDs.
 
 ## Internal transfers and spending
 

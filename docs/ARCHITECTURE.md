@@ -52,8 +52,7 @@ wird (Konfiguration, Aktivitäten), geht über die vom Host bereitgestellte
 ### Kernidee: Zwei-Konten-Modell
 
 Beide Broker führen Geld und Wertpapiere in *einem* Konto; Wealthfolio trennt sie. Der
-Nutzer wählt daher **pro Broker** zwei Wealthfolio-Konten (für Scalable Capital
-`scalableCashAccountId` / `scalablePortfolioAccountId`, siehe 8.1):
+Nutzer wählt daher **pro Broker** zwei Wealthfolio-Konten (`brokers[<format>]`, siehe 8.1):
 
 | Konto | Typ in Wealthfolio | Erhält |
 |---|---|---|
@@ -107,11 +106,13 @@ src/
 ├── formats.ts              Formaterkennung (Kopfzeile) + Parsen + Weiterleitung an den Transformer
 ├── common.ts               Gemeinsame Helfer beider Transformer (makeCashAct, matchPattern, …)
 ├── scalable.ts             Scalable Capital: ScRow[] → ActivityImportEx[] (Abschnitt 14)
-├── ImportPage.tsx          Import-Wizard: Zustand und Darstellung (Schritte, Tabellen, Abgleich, Ergebnis)
+├── ImportPage.tsx          Import-Wizard: lädt Einstellungen, führt die asynchrone Arbeit aus, zeigt den Schritt (seit 3.9.4)
+├── wizard.ts               Zustand des Wizards als reiner Reducer (Schritte, Übergänge), securitiesOf (#78)
+├── import/                 Die Schritte als Seiten: UploadStep, ConfirmStep, DoneStep, parts (Tabellen, Helfer)
 ├── importer.ts             Import-Logik ohne React: Mapping, Status, Payloads, Import-Lauf, Fehler (seit 2.8.0)
 ├── SecurityMappingStep.tsx UI-Schritt: ISIN → Ticker zuordnen
 ├── SettingsPage.tsx        Einstellungen: Konten, Transfer-Patterns, Security-Mappings
-├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets)
+├── settings.ts             Laden/Speichern der Konfiguration (ctx.api.secrets), migrateSettings (alte Felder → brokers, #79)
 ├── transform.ts            ★ Trade Republic: TrRow[] → ActivityImportEx[] (inkl. Vorlauf planSpecialRows)
 ├── reconcile.ts            Abgleich vor dem Import: Cash-Saldo, Bargeld im Depot, Bestände (6.5)
 ├── types.ts                Gemeinsame Typen (TrRow, ScRow, AddonSettings, SkippedRow/SkipKind, …)
@@ -453,7 +454,11 @@ stateDiagram-v2
 ```
 
 `type Step = "upload" | "asset-review" | "checking" | "confirm" | "importing" | "done"`.
-Der gesamte Zustand liegt in `useState`-Hooks der Komponente (kein Store).
+Seit 3.9.4 (#78) liegt der Zustand in `wizard.ts`: `WizardState`, die Aktionen (`Action`) und der reine
+Reducer `wizard()`, getestet in `wizard.test.ts` (jeder Übergang, auch Zurück und Neustart).
+`ImportPage.tsx` hält ihn mit `useReducer`, führt die asynchrone Arbeit aus (Lesen, `checkImport`,
+Import) und meldet das Ergebnis als Aktion; die Schritte zeigen ihn (`src/import/`). Nur die
+Einstellungen und die Konten liegen in `useState`.
 
 ### 6.2 Datenfluss eines Imports
 
@@ -684,14 +689,13 @@ bleiben ungespeichert) und `portfolio.update()` angestoßen.
 
 ```ts
 {
-  cashAccountId: string;          // Wealthfolio-Konto vom Typ CASH
-  cashCurrency: string;           // Währung des Cash-Kontos (Default "EUR")
-  portfolioAccountId: string;     // Wealthfolio-Konto vom Typ SECURITIES
-  scalableCashAccountId: string;      // seit 1.4.0: eigenes Kontenpaar für Scalable Capital
-  scalableCashCurrency: string;
-  scalablePortfolioAccountId: string;
-  dkbCashAccountId: string;           // seit 2.10.0: Kontenpaar für DKB-PDF-Belege
-  dkbPortfolioAccountId: string;
+  brokers: {                      // seit 3.9.4 (#79): ein Kontenpaar pro Format
+    "trade-republic" | "scalable" | "dkb": {
+      cashAccountId: string;      // Wealthfolio-Konto vom Typ CASH
+      portfolioAccountId: string; // Wealthfolio-Konto vom Typ SECURITIES
+      cashCurrency: string;       // Währung des Cash-Kontos (Default "EUR")
+    };
+  };
   transferPatterns: TransferPattern[];            // { iban?, keyword?, label, destinationAccountId? }
   securityMappings: Record<string, SecurityMapping>; // ISIN → Ticker | "custom"
   securityNames: Record<string, string>;             // seit 3.9.1: ISIN → Name aus der Datei
@@ -702,10 +706,10 @@ bleiben ungespeichert) und `portfolio.update()` angestoßen.
 
 - Gespeichert als **ein JSON-String** unter dem Schlüssel `"config"` via
   `ctx.api.secrets.get/set`.
-- `loadSettings` merged gespeicherte Werte über `DEFAULT_SETTINGS`
-  (`{ ...DEFAULT_SETTINGS, ...JSON.parse(raw) }`) – **neue Felder brauchen daher nur
-  einen Default in `DEFAULT_SETTINGS`**, ältere Konfigurationen bleiben kompatibel.
-  Achtung: Das Merge ist flach; verschachtelte Objekte werden nicht gemerged.
+- `loadSettings` liest sie über `migrateSettings`: Werte über `DEFAULT_SETTINGS`, je Broker
+  über dessen Default, und die Felder vor 3.9.4 (`cashAccountId`, `scalableCashAccountId`,
+  `dkbCashAccountId`, …) in `brokers` – **neue Felder brauchen daher nur einen Default in
+  `DEFAULT_SETTINGS`**, ältere Konfigurationen bleiben kompatibel.
 - Bei Lese-/Parsefehlern werden still die Defaults verwendet.
 
 ### 8.3 SettingsPage
@@ -848,8 +852,9 @@ keine Release-Notes.
 
 ### 12.2 Neues Einstellungsfeld
 
-1. Feld in `AddonSettings` (`types.ts`) ergänzen.
-2. Default in `DEFAULT_SETTINGS` (`settings.ts`) – sorgt für Rückwärtskompatibilität.
+1. Feld in `AddonSettings` (`types.ts`) ergänzen – Konten eines Brokers in `BrokerAccounts`.
+2. Default in `DEFAULT_SETTINGS` (`settings.ts`); ein umbenanntes oder verschobenes Feld liest
+   `migrateSettings` aus der alten Form (sorgt für Rückwärtskompatibilität).
 3. UI in `SettingsPage.tsx` (über `set({ … })`).
 4. Nutzung in `transform.ts` (über `config`) bzw. `ImportPage.tsx`.
 5. `CONFIG` in `transform.test.ts` **und** `scalable.test.ts` ergänzen (sonst Typfehler).
@@ -888,13 +893,12 @@ keine Release-Notes.
 2. **Alle Invarianten aus 5.5** einhalten, insbesondere eigene Präfixe für
    `transferGroupId` (z. B. `xy-buy-`), stabile IDs ohne Zeilennummer, `amount` bei Trades,
    Zeitstempel in UTC.
-3. **`formats.ts`:** neuen Wert in `ImportFormat` und `FORMAT_LABEL`, Erkennung in
-   `detectFormat` (eindeutiges Merkmal der Kopfzeile), Kontenpaar in `formatAccounts`,
-   Parsen + Aufruf in `parseAndTransform`.
-4. **Einstellungen:** eigenes Kontenpaar in `AddonSettings` + `DEFAULT_SETTINGS`
-   (Rezept 12.2), Karte in `SettingsPage.tsx`, Speicherprüfung und
-   „Settings not configured"-Prüfung in `ImportPage.tsx` um den Broker erweitern,
-   Kontonamen in `accountName`.
+3. **`formats.ts`:** neuen Wert in `ImportFormat`, `FORMATS` und `FORMAT_LABEL`, ein
+   Eintrag in `CSV_IMPORTERS` (Erkennung an der Kopfzeile, Transformer, Broker-Saldo) – seit
+   3.9.4 (#79) laufen `detectFormat` und `parseAndTransform` über diese Tabelle.
+4. **Einstellungen:** Eintrag in `DEFAULT_SETTINGS.brokers` (Rezept 12.2) und die Texte
+   `settings.<broker>.*` in beiden Bundles; Karte, Speicherprüfung, „nicht konfiguriert"-Prüfung
+   und Kontonamen laufen über `FORMATS`.
 5. **Tests + Fixture** mit erfundenen Daten im echten Format; Doku (diese Datei,
    README, `CLAUDE.md`), CHANGELOG, Minor-Bump.
 
