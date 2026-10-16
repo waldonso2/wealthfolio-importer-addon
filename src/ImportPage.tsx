@@ -9,6 +9,7 @@ import {
   accountsToMatch,
   applySecurityMappings,
   groupIdsByLine,
+  keepExternal,
   matchExisting,
   runImport,
   selectCandidates,
@@ -69,7 +70,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       let validated: ActivityImport[];
       let checkError = "";
       try {
-        validated = await ctx.api.activities.checkImport(activities);
+        validated = keepExternal(await ctx.api.activities.checkImport(activities), activities);
       } catch (e) {
         checkError = String(e);
         validated = activities;
