@@ -75,6 +75,12 @@ export function groupIdsByLine(original: ActivityImportEx[]): Map<number, string
   return map;
 }
 
+// isExternal doesn't survive checkImport either; it is restored by lineNumber the same way.
+export function keepExternal(checked: ActivityImport[], original: ActivityImport[]): ActivityImport[] {
+  const external = new Set(original.filter((a) => a.isExternal && a.lineNumber != null).map((a) => a.lineNumber));
+  return checked.map((a) => (a.lineNumber != null && external.has(a.lineNumber) ? { ...a, isExternal: true } : a));
+}
+
 // What gets submitted: everything except errors and the duplicates the user
 // excluded. Duplicates are included by default and updated in place.
 export function selectCandidates(
@@ -283,6 +289,8 @@ export function buildPayload(a: ActivityImport, sourceGroupId: string | undefine
     comment: a.comment,
     asset,
     sourceGroupId,
+    // Flow classification: a leg without its pair crosses the tracked-account boundary (#125).
+    ...(a.isExternal ? { metadata: { flow: { is_external: true } } } : {}),
   };
   if (activityStatus(a) === "duplicate" && a.duplicateOfId) {
     return { kind: "update", payload: { id: a.duplicateOfId, ...fields } as ActivityUpdate };
