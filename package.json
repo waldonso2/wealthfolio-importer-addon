@@ -32,7 +32,8 @@
     "check:versions": "node scripts/check-versions.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "perf": "vitest run --config vitest.perf.config.ts"
   },
   "dependencies": {
     "papaparse": "^5.7.0",

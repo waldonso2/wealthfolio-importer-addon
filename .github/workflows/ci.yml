@@ -41,6 +41,10 @@ jobs:
       # Known vulnerabilities in what ships in addon.js; dev tools are left to Dependabot.
       - run: pnpm audit --prod
 
+      # Measured and reported on the run's summary page (docs/KENNZAHLEN.md), never failing the build.
+      - run: pnpm perf
+        continue-on-error: true
+
   dependency-review:
     # A pull request that adds a dependency with a known vulnerability is flagged.
     runs-on: ubuntu-latest

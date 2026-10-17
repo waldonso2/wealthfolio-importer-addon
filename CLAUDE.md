@@ -46,6 +46,7 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
 | `src/addon.tsx` | Entry point — registers pages and sidebar item via addon-sdk |
 | `docs/ARCHITECTURE.md` | Full architecture (German): modules, data flow, invariants, change recipes |
+| `docs/KENNZAHLEN.md`, `src/addon.perf.ts` | KPIs for security, UI and performance (ISO/IEC 25010) with target, reference standard and whether they block. Performance is only reported, never blocking (owner's rule): `pnpm perf` (`vitest.perf.config.ts`, after `pnpm build`) runs in CI with `continue-on-error` and writes its table to the run's summary; `*.perf.ts` stay out of `pnpm test`. `scorecard.yml` reports the OpenSSF Scorecard |
 
 ## Commands
 

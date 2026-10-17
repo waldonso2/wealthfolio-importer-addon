@@ -44,3 +44,4 @@ yarn-error.log*
 
 # Test coverage
 coverage/
+perf-report.md
