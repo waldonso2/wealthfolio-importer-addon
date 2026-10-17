@@ -29,6 +29,15 @@ function UploadZone({ onFiles, error, busy }: { onFiles: (f: File[]) => void; er
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
       onClick={() => inputRef.current?.click()}
+      // The file input is hidden: the zone itself is the button, also for the keyboard.
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          inputRef.current?.click();
+        }
+      }}
       className={`cursor-pointer rounded-lg border-2 border-dashed p-10 text-center transition-colors ${
         dragging
           ? "border-primary bg-primary/5"
@@ -40,7 +49,7 @@ function UploadZone({ onFiles, error, busy }: { onFiles: (f: File[]) => void; er
         type="file"
         accept=".csv,.pdf"
         multiple
-        className="hidden"
+        hidden
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
           if (files.length > 0) onFiles(files);

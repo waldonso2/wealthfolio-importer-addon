@@ -122,3 +122,47 @@ describe("ImportPage review", () => {
     expect(screen.getByText("1 Aktivität importieren")).toBeTruthy();
   });
 });
+
+// axe-core on every step a user sees (#105 of the sync service: the same rules). jsdom lays nothing out,
+// so the contrast rule can't run here.
+async function expectAccessible(container: HTMLElement) {
+  const axe = (await import("axe-core")).default;
+  const { violations } = await axe.run(container, { rules: { "color-contrast": { enabled: false } } });
+  expect(violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`)).toEqual([]);
+}
+
+describe("accessibility (axe)", () => {
+  it("settings page", async () => {
+    const ctx = fakeContext();
+    const { container } = render(<SettingsPage ctx={ctx} />);
+    await screen.findAllByText(/Receives buy\/sell trades and dividends/);
+    await expectAccessible(container);
+  });
+
+  it("upload step", async () => {
+    const ctx = fakeContext({ cashAccountId: "cash", portfolioAccountId: "depot" });
+    const { container } = render(<ImportPage ctx={ctx} />);
+    await waitFor(() => expect(ctx.api.accounts.getAll).toHaveBeenCalled());
+    await expectAccessible(container);
+  });
+
+  it("security mapping step", async () => {
+    const ctx = fakeContext({ cashAccountId: "cash", portfolioAccountId: "depot" });
+    const { container } = render(<ImportPage ctx={ctx} />);
+    await waitFor(() => expect(ctx.api.accounts.getAll).toHaveBeenCalled());
+    const csv = readFileSync("src/__fixtures__/tr-sample.csv", "utf8");
+    const file = new File([csv], "tr-sample.csv", { type: "text/csv" });
+    Object.defineProperty(file, "text", { value: async () => csv });
+    fireEvent.change(container.querySelector("input[type=file]") as HTMLInputElement, { target: { files: [file] } });
+    await screen.findByText("Map Securities", {}, { timeout: 4000 });
+    await expectAccessible(container);
+  });
+
+  it("review step", async () => {
+    const ctx = fakeContext({ cashAccountId: "cash", portfolioAccountId: "depot" });
+    const { container } = render(<ImportPage ctx={ctx} />);
+    await uploadDeposit(ctx, container);
+    await screen.findByText("Review activities", {}, { timeout: 4000 });
+    await expectAccessible(container);
+  });
+});

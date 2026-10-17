@@ -42,7 +42,7 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 | `src/__fixtures__/scalable-sample.csv` | 26-row fabricated Scalable fixture (BOM, CRLF, `;`, decimal comma) covering every supported Scalable type |
 | `src/pdf/` | PDF statements: `text.ts` (pdf.js → lines), `parse.ts` (broker detection), `tradeRepublic.ts` / `scalable.ts` / `dkb.ts` (parsers → `PdfTransaction` or a reason), `activities.ts` (two-account mapping, same rules as the CSV transformers), `index.ts` (`parsePdfFiles`). Never put real statements into fixtures — fabricate them in the real layout |
 | `contract/dedup/cases.json` | Duplicate-detection cases shared with the broker sync service (the service's copy is leading; CI job `contract` diffs them). A change to the matching rules goes into both repos' copies together |
-| `src/pages.test.tsx` | Component tests of the pages with a fake `AddonContext` (jsdom) |
+| `src/pages.test.tsx` | Component tests of the pages with a fake `AddonContext` (jsdom), and axe-core on every wizard step and the settings (no violation; contrast can't be checked in jsdom). ESLint runs `jsx-a11y` on every `.tsx`: a form field needs a label (`htmlFor`/`id` or `aria-label`), a clickable element is a button for the keyboard too |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
 | `src/addon.tsx` | Entry point — registers pages and sidebar item via addon-sdk |
 | `docs/ARCHITECTURE.md` | Full architecture (German): modules, data flow, invariants, change recipes |

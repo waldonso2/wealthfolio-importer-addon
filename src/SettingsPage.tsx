@@ -32,7 +32,9 @@ function AccountSelect({
   onChange,
   placeholder,
   filterType,
+  id,
 }: {
+  id: string;
   accounts: Account[];
   value: string;
   onChange: (v: string) => void;
@@ -42,7 +44,7 @@ function AccountSelect({
   const filtered = filterType ? accounts.filter((a) => a.accountType === filterType) : accounts;
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-full">
+      <SelectTrigger id={id} className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
@@ -166,8 +168,9 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
             <CardContent className="space-y-4">
               <p className="text-muted-foreground text-xs">{t(`settings.${k}.intro`)}</p>
               <div className="space-y-1">
-                <Label>{t(`settings.${k}.cash`)}</Label>
+                <Label htmlFor={`${format}-cash`}>{t(`settings.${k}.cash`)}</Label>
                 <AccountSelect
+                  id={`${format}-cash`}
                   accounts={accounts}
                   value={pair.cashAccountId}
                   onChange={(v) => {
@@ -180,8 +183,9 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
                 <p className="text-muted-foreground text-xs">{t(`settings.${k}.cashHelp`)}</p>
               </div>
               <div className="space-y-1">
-                <Label>{t(`settings.${k}.securities`)}</Label>
+                <Label htmlFor={`${format}-securities`}>{t(`settings.${k}.securities`)}</Label>
                 <AccountSelect
+                  id={`${format}-securities`}
                   accounts={accounts}
                   value={pair.portfolioAccountId}
                   onChange={(v) => setPair({ portfolioAccountId: v })}
@@ -236,7 +240,7 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
                   updatePattern(i, { destinationAccountId: v === noDestOption ? undefined : v })
                 }
               >
-                <SelectTrigger className="w-44 shrink-0">
+                <SelectTrigger className="w-44 shrink-0" aria-label={t("settings.patterns.destination")}>
                   <SelectValue placeholder={t("settings.patterns.destination")} />
                 </SelectTrigger>
                 <SelectContent>
