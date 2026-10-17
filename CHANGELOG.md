@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.9.6] - 2026-10-17
+
+### Fixed
+
+- **The upload zone works with the keyboard:** it can be reached with Tab and opened with Enter or Space.
+- **Screen readers name the account selects** in the settings (linked to their labels) and the destination select of a transfer pattern.
+- **Faster duplicate check:** activities already in Wealthfolio are read once and only those of the same account and type within 36 hours are compared, instead of all of them for every new activity. The rules and their order are unchanged (`contract/dedup/cases.json`).
+
+### Changed
+
+- CI: CodeQL, zizmor, dependency review, `pnpm audit --prod`, accessibility checks (jsx-a11y, axe-core), a performance report on the run's summary page that never fails a build, OpenSSF Scorecard. The release job no longer uses a package cache. `docs/KENNZAHLEN.md` lists the KPIs with their reference standards.
+
 ## [3.9.5] - 2026-10-16
 
 ### Fixed

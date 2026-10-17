@@ -42,10 +42,11 @@ The mapping logic lives in the per-broker transformers — `src/transform.ts` (T
 | `src/__fixtures__/scalable-sample.csv` | 26-row fabricated Scalable fixture (BOM, CRLF, `;`, decimal comma) covering every supported Scalable type |
 | `src/pdf/` | PDF statements: `text.ts` (pdf.js → lines), `parse.ts` (broker detection), `tradeRepublic.ts` / `scalable.ts` / `dkb.ts` (parsers → `PdfTransaction` or a reason), `activities.ts` (two-account mapping, same rules as the CSV transformers), `index.ts` (`parsePdfFiles`). Never put real statements into fixtures — fabricate them in the real layout |
 | `contract/dedup/cases.json` | Duplicate-detection cases shared with the broker sync service (the service's copy is leading; CI job `contract` diffs them). A change to the matching rules goes into both repos' copies together |
-| `src/pages.test.tsx` | Component tests of the pages with a fake `AddonContext` (jsdom) |
+| `src/pages.test.tsx` | Component tests of the pages with a fake `AddonContext` (jsdom), and axe-core on every wizard step and the settings (no violation; contrast can't be checked in jsdom). ESLint runs `jsx-a11y` on every `.tsx`: a form field needs a label (`htmlFor`/`id` or `aria-label`), a clickable element is a button for the keyboard too |
 | `manifest.json` | Addon metadata; `version` here drives the release tag |
 | `src/addon.tsx` | Entry point — registers pages and sidebar item via addon-sdk |
 | `docs/ARCHITECTURE.md` | Full architecture (German): modules, data flow, invariants, change recipes |
+| `docs/KENNZAHLEN.md`, `src/addon.perf.ts` | KPIs for security, UI and performance (ISO/IEC 25010) with target, reference standard and whether they block. Performance is only reported, never blocking (owner's rule): `pnpm perf` (`vitest.perf.config.ts`, after `pnpm build`) runs in CI with `continue-on-error` and writes its table to the run's summary; `*.perf.ts` stay out of `pnpm test`. `scorecard.yml` reports the OpenSSF Scorecard |
 
 ## Commands
 
@@ -77,7 +78,7 @@ The addon is (being) listed in the Wealthfolio community directory (`wealthfolio
 
 ## Repository security
 
-CI scans the whole history for secrets (job `secrets`, gitleaks, `.gitleaks.toml`); `.gitignore` keeps every `*.pdf`/`*.csv` outside `src/__fixtures__/` out of the repository, so a real statement used for testing can't be committed. GitHub Actions are pinned to commit SHAs (Dependabot updates them). Vulnerabilities are reported privately (`SECURITY.md`).
+CI scans the whole history for secrets (job `secrets`, gitleaks, `.gitleaks.toml`); `.gitignore` keeps every `*.pdf`/`*.csv` outside `src/__fixtures__/` out of the repository, so a real statement used for testing can't be committed. GitHub Actions are pinned to commit SHAs (Dependabot updates them, after a 7-day `cooldown`). CodeQL (`codeql.yml`) and zizmor (CI job `workflows`) check the code and the workflows; CI runs `pnpm audit --prod` (what ships in `addon.js`) and dependency review on pull requests. The release job uses no package cache (cache poisoning). Vulnerabilities are reported privately (`SECURITY.md`).
 
 ## Two-account model
 

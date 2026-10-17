@@ -38,6 +38,35 @@ jobs:
 
       - run: pnpm build
 
+      # Known vulnerabilities in what ships in addon.js; dev tools are left to Dependabot.
+      - run: pnpm audit --prod
+
+      # Measured and reported on the run's summary page (docs/KENNZAHLEN.md), never failing the build.
+      - run: pnpm perf
+        continue-on-error: true
+
+  dependency-review:
+    # A pull request that adds a dependency with a known vulnerability is flagged.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+
+  workflows:
+    # The workflows themselves: injection, permissions, cache poisoning (zizmor).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        with:
+          version: 1.31.1
+          advanced-security: false
+          min-severity: medium
+
   secrets:
     runs-on: ubuntu-latest
     steps:
