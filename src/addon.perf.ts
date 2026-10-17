@@ -1,7 +1,7 @@
 // Performance report (docs/KENNZAHLEN.md): measured, compared with the reference values, never failing.
 // `pnpm perf` (vitest.perf.config.ts) after `pnpm build`; the CI step runs with continue-on-error. The table goes
 // to $GITHUB_STEP_SUMMARY (the run's summary page) and to perf-report.md.
-import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { afterAll, expect, it } from "vitest";
 import { parseAndTransform } from "./formats";
@@ -112,9 +112,13 @@ it("duplicate matching", () => {
 });
 
 it("bundle size", () => {
-  if (!existsSync("dist/addon.js")) return; // `pnpm build` first
-  const bytes = statSync("dist/addon.js").size;
-  const gzip = gzipSync(readFileSync("dist/addon.js")).length;
-  record("Paket", "dist/addon.js", bytes / 1024, "KiB", 3072, "eigenes Budget");
+  let bundle: Buffer;
+  try {
+    bundle = readFileSync("dist/addon.js");
+  } catch {
+    return; // `pnpm build` first
+  }
+  const gzip = gzipSync(bundle).length;
+  record("Paket", "dist/addon.js", bundle.length / 1024, "KiB", 3072, "eigenes Budget");
   record("Paket", "dist/addon.js, gzip", gzip / 1024, "KiB", 1024, "eigenes Budget");
 });
