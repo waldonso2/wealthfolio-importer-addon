@@ -78,7 +78,7 @@ The addon is (being) listed in the Wealthfolio community directory (`wealthfolio
 
 ## Repository security
 
-CI scans the whole history for secrets (job `secrets`, gitleaks, `.gitleaks.toml`); `.gitignore` keeps every `*.pdf`/`*.csv` outside `src/__fixtures__/` out of the repository, so a real statement used for testing can't be committed. GitHub Actions are pinned to commit SHAs (Dependabot updates them, after a 7-day `cooldown`). CodeQL (`codeql.yml`) and zizmor (CI job `workflows`) check the code and the workflows; CI runs `pnpm audit --prod` (what ships in `addon.js`) and dependency review on pull requests. The release job uses no package cache (cache poisoning). Vulnerabilities are reported privately (`SECURITY.md`).
+CI scans the whole history for secrets (job `secrets`, gitleaks, `.gitleaks.toml`); `.gitignore` keeps every `*.pdf`/`*.csv` outside `src/__fixtures__/` out of the repository, so a real statement used for testing can't be committed. GitHub Actions are pinned to commit SHAs (Dependabot updates them, after a 7-day `cooldown`). The CI jobs `secrets`, `workflows` and `dependency-review` call the shared workflows of `waldonso2/quality-kit` (pinned to the commit of its tag `v1`); a stricter rule there comes as a new major tag and is adopted here by moving the pin. CodeQL (`codeql.yml`) and zizmor (CI job `workflows`) check the code and the workflows; CI runs `pnpm audit --prod` (what ships in `addon.js`) and dependency review on pull requests. The release job uses no package cache (cache poisoning). Vulnerabilities are reported privately (`SECURITY.md`).
 
 ## Two-account model
 
