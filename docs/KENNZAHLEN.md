@@ -38,6 +38,6 @@ ungestört.
 | Trade-Republic-CSV mit 10.000 Zeilen einlesen | ≤ 1 s | Nielsen 1 s | Bericht |
 | Scalable-CSV mit 10.000 Zeilen einlesen | ≤ 1 s | Nielsen 1 s | Bericht |
 | 500 PDF-Belege auswerten (Text schon gelesen) | ≤ 1 s | Nielsen 1 s | Bericht |
-| Duplikat-Erkennung: 3000 neue gegen 3000 vorhandene | ≤ 1 s | Nielsen 1 s | Bericht |
+| Duplikat-Erkennung: 3000 neue gegen 3000 vorhandene (stündlich über ~4 Monate) | ≤ 1 s | Nielsen 1 s | Bericht |
 | Größe von `dist/addon.js` | ≤ 3 MiB | eigenes Budget | Bericht |
 | Größe von `dist/addon.js`, gzip | ≤ 1 MiB | eigenes Budget | Bericht |

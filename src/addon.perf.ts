@@ -95,7 +95,7 @@ it("duplicate matching", () => {
     id: `e${i}`,
     accountId: "cash",
     activityType: "DEPOSIT",
-    date: new Date(base + i * 60_000).toISOString(),
+    date: new Date(base + i * 3_600_000).toISOString(),
     amount: String(1000 + i),
     currency: "EUR",
   }));
@@ -103,12 +103,12 @@ it("duplicate matching", () => {
     key: i,
     accountId: "cash",
     activityType: "DEPOSIT",
-    date: new Date(base + i * 60_000).toISOString(),
+    date: new Date(base + i * 3_600_000).toISOString(),
     amount: String(1000 + i),
     currency: "EUR",
   }));
   const ms = timed(() => findExistingMatches(incoming, existing), 3);
-  record("Duplikat-Erkennung", `${n} neue gegen ${n} vorhandene Buchungen`, ms, "ms", 1000, "Nielsen 1 s");
+  record("Duplikat-Erkennung", `${n} neue gegen ${n} vorhandene Buchungen (stündlich, ~4 Monate)`, ms, "ms", 1000, "Nielsen 1 s");
 });
 
 it("bundle size", () => {

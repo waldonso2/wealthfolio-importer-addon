@@ -158,31 +158,76 @@ export interface IncomingLike {
 }
 
 // The existing activity each incoming one already is (key -> existing id), in order.
+// An existing activity with its time and amount parsed once, and its place in the list (ties keep that order).
+interface Parsed {
+  e: ExistingLike;
+  time: number;
+  amount: number;
+  pos: number;
+}
+
+// By account and type, sorted by time, so each incoming activity looks only at its 36-hour window. Activities
+// without a readable date are always in the window, as before (NaN never exceeds it).
+function byAccountAndType(existing: ExistingLike[]): Map<string, { timed: Parsed[]; undated: Parsed[] }> {
+  const buckets = new Map<string, { timed: Parsed[]; undated: Parsed[] }>();
+  existing.forEach((e, pos) => {
+    const key = `${e.accountId}\u0000${e.activityType}`;
+    const bucket = buckets.get(key) ?? { timed: [], undated: [] };
+    const p = { e, time: new Date(String(e.date)).getTime(), amount: existingAmount(e), pos };
+    (Number.isNaN(p.time) ? bucket.undated : bucket.timed).push(p);
+    buckets.set(key, bucket);
+  });
+  for (const b of buckets.values()) b.timed.sort((x, y) => x.time - y.time || x.pos - y.pos);
+  return buckets;
+}
+
+// First index in `sorted` whose time is >= t (or > t with `after`).
+function bound(sorted: Parsed[], t: number, after = false): number {
+  let lo = 0;
+  let hi = sorted.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (sorted[mid].time < t || (after && sorted[mid].time === t)) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 export function findExistingMatches(incoming: IncomingLike[], existing: ExistingLike[]): Map<number, string> {
   const used = new Set<string>();
   const result = new Map<number, string>();
+  const buckets = byAccountAndType(existing);
   for (const a of incoming) {
     if (!MATCH_TYPES.has(a.activityType)) continue;
     const time = new Date(String(a.date)).getTime();
     const amount = Math.abs(toNum(a.amount));
     const quantity = Math.abs(toNum(a.quantity));
     const cash = !a.symbol || isCashSymbol(a.symbol);
-    const candidates = existing.filter((e) => {
+    const bucket = buckets.get(`${a.accountId}\u0000${a.activityType}`) ?? { timed: [], undated: [] };
+    const near = Number.isNaN(time)
+      ? bucket.timed
+      : bucket.timed.slice(bound(bucket.timed, time - MATCH_WINDOW_MS), bound(bucket.timed, time + MATCH_WINDOW_MS, true));
+    const parsed = [...near, ...bucket.undated].filter(({ e, time: t, amount: existing }) => {
       if (used.has(e.id) || e.accountId !== a.accountId || e.activityType !== a.activityType) return false;
       if ((e.subtype || null) !== (a.subtype || null)) return false;
       // Another currency is another booking - compared when both sides name one (#100).
       if (e.currency && a.currency && e.currency !== a.currency) return false;
-      if (Math.abs(new Date(String(e.date)).getTime() - time) > MATCH_WINDOW_MS) return false;
-      if (!(Math.abs(existingAmount(e) - amount) <= AMOUNT_TOLERANCE)) return false;
+      if (Math.abs(t - time) > MATCH_WINDOW_MS) return false;
+      if (!(Math.abs(existing - amount) <= AMOUNT_TOLERANCE)) return false;
       if (a.activityType === "BUY" || a.activityType === "SELL") {
         return Math.abs(Math.abs(toNum(e.quantity)) - quantity) < 1e-9;
       }
       return true;
     });
     // The nearest in time first, then the closest amount (#100): two equal savings-plan deposits on two days
-    // must each find their own.
-    const gap = (e: ExistingLike) => Math.abs(new Date(String(e.date)).getTime() - time);
-    candidates.sort((x, y) => gap(x) - gap(y) || Math.abs(existingAmount(x) - amount) - Math.abs(existingAmount(y) - amount));
+    // must each find their own. Ties keep the list order.
+    parsed.sort(
+      (x, y) =>
+        Math.abs(x.time - time) - Math.abs(y.time - time) ||
+        Math.abs(x.amount - amount) - Math.abs(y.amount - amount) ||
+        x.pos - y.pos,
+    );
+    const candidates = parsed.map((p) => p.e);
     const sameSecurity = (e: ExistingLike) =>
       cash ||
       (!!a.assetId && e.assetId === a.assetId) ||

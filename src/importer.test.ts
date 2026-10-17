@@ -360,3 +360,46 @@ describe("shared duplicate-detection cases", () => {
     });
   }
 });
+
+describe("findExistingMatches looks only at the time window", () => {
+  const dep = (id: string, date: string, amount: string) => ({
+    id,
+    accountId: "c",
+    activityType: "DEPOSIT",
+    date,
+    amount,
+    currency: "EUR",
+  });
+  const inc = (key: number, date: string, amount: string) => ({
+    key,
+    accountId: "c",
+    activityType: "DEPOSIT",
+    date,
+    amount,
+    currency: "EUR",
+  });
+
+  it("keeps the 36-hour edge, the list order for ties, and undated activities", () => {
+    const existing = [
+      dep("late", "2026-05-02T12:00:00Z", "20"), // exactly 36 h after
+      dep("tie-1", "2026-06-01T01:00:00Z", "30"),
+      dep("tie-2", "2026-05-31T23:00:00Z", "30"), // as near, earlier in time, later in the list
+      dep("undated", "not a date", "40"),
+      dep("too-late", "2026-07-02T12:00:01Z", "50"),
+    ];
+    const found = findExistingMatches(
+      [
+        inc(1, "2026-05-01T00:00:00Z", "20"),
+        inc(2, "2026-06-01T00:00:00Z", "30"),
+        inc(3, "2026-08-01T00:00:00Z", "40"),
+        inc(4, "2026-07-01T00:00:00Z", "50"),
+      ],
+      existing,
+    );
+    expect([...found]).toEqual([
+      [1, "late"],
+      [2, "tie-1"],
+      [3, "undated"],
+    ]);
+  });
+});
