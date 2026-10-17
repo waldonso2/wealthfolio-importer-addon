@@ -329,8 +329,9 @@ function planSpecialRows(rows: TrRow[], config: BrokerConfig): Map<string, Plann
     const cost = relieve(o.symbol, outQty);
     addLot(i.symbol, inQty, cost);
     const note = `${label}: ${o.symbol} -> ${i.symbol}`;
-    book(o, security(o, "TRANSFER_OUT", o.datetime, outQty, fmtPrice(cost / outQty), `${o.name} - ${note}${timeTag(o.datetime)}`));
-    book(i, security(i, "TRANSFER_IN", addSec(i.datetime, 1), inQty, fmtPrice(cost / inQty), `${i.name} - ${note}${timeTag(i.datetime)}`));
+    // Unpaired legs: marked external so Wealthfolio doesn't report them as incomplete transfers (#125).
+    book(o, { ...security(o, "TRANSFER_OUT", o.datetime, outQty, fmtPrice(cost / outQty), `${o.name} - ${note}${timeTag(o.datetime)}`), isExternal: true });
+    book(i, { ...security(i, "TRANSFER_IN", addSec(i.datetime, 1), inQty, fmtPrice(cost / inQty), `${i.name} - ${note}${timeTag(i.datetime)}`), isExternal: true });
   }
 
   for (const neg of negativeDividends) {

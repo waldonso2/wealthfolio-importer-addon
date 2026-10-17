@@ -9,6 +9,7 @@ import {
   firstError,
   groupIdsByLine,
   importButtonLabel,
+  keepExternal,
   matchExisting,
   accountsToMatch,
   findExistingMatches,
@@ -155,6 +156,24 @@ describe("buildPayload", () => {
     const p = buildPayload(act({ duplicateOfId: "dup-9" }) as ActivityImport, undefined);
     expect(p.kind).toBe("update");
     expect(p.payload).toMatchObject({ id: "dup-9", amount: "201" });
+  });
+
+  it("an external leg carries the flow flag, others no metadata", () => {
+    const ext = buildPayload(act({ activityType: "TRANSFER_OUT", isExternal: true }) as ActivityImport, undefined);
+    expect(ext.payload.metadata).toEqual({ flow: { is_external: true } });
+    expect(buildPayload(act({ duplicateOfId: "d", isExternal: true }) as ActivityImport, undefined).payload.metadata).toEqual({
+      flow: { is_external: true },
+    });
+    expect(buildPayload(act({}) as ActivityImport, undefined).payload).not.toHaveProperty("metadata");
+  });
+
+  it("keepExternal restores the flag checkImport dropped, by line", () => {
+    const original = [act({ lineNumber: 1, isExternal: true }), act({ lineNumber: 2 })] as ActivityImport[];
+    const checked = [act({ lineNumber: 2 }), act({ lineNumber: 1 })] as ActivityImport[];
+    expect(keepExternal(checked, original).map((a) => [a.lineNumber, a.isExternal])).toEqual([
+      [2, undefined],
+      [1, true],
+    ]);
   });
 
   it("no asset for rows without symbol", () => {

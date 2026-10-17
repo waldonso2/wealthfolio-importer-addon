@@ -1,6 +1,6 @@
 {
   "name": "broker-importer-addon",
-  "version": "3.9.4",
+  "version": "3.9.5",
   "description": "Import Trade Republic and Scalable Capital CSV exports and PDF statements (incl. DKB) into Wealthfolio",
   "type": "module",
   "main": "dist/addon.js",

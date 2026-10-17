@@ -552,6 +552,9 @@ describe("Corporate actions", () => {
     // different assets can't be a Wealthfolio transfer pair
     expect(out.transferGroupId).toBeUndefined();
     expect(inn.transferGroupId).toBeUndefined();
+    // unpaired, so external for Wealthfolio's flow classification (#125)
+    expect([out.isExternal, inn.isExternal]).toEqual([true, true]);
+    expect(activities.filter((a) => a.isExternal)).toHaveLength(2);
     expect(new Date(inn.date as string).getTime()).toBeGreaterThan(new Date(out.date as string).getTime());
   });
 

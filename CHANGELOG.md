@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.9.5] - 2026-10-16
+
+### Fixed
+
+- **No more "incomplete transfers" for Trade Republic ISIN exchanges** (#125): the two legs of a share exchange, ADR discontinuation, reorganisation or reverse split with a new ISIN are marked as external flows, so Wealthfolio no longer lists them as transfers missing their other half. Comments, amounts and duplicate detection are unchanged; re-importing the file updates activities imported before.
+
 ## [3.9.4] - 2026-10-15
 
 ### Fixed
