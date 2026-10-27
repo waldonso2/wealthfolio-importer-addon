@@ -263,7 +263,7 @@ export function ImportPage({ ctx }: { ctx: AddonContext }) {
       return (
         <div className="max-w-md space-y-4 p-6">
           <h1 className="text-2xl font-semibold">{t(checking ? "checking.title" : "importing.title")}</h1>
-          {checking ? <Progress value={undefined} className="animate-pulse" /> : <Progress value={state.progress} />}
+          {checking ? <Progress value={null} className="animate-pulse" /> : <Progress value={state.progress} />}
           <p className="text-muted-foreground text-sm">
             {checking ? t("checking.text", { count: state.parsed?.result.activities.length ?? 0 }) : t("importing.text")}
           </p>
