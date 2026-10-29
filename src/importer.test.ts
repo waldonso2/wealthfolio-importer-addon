@@ -348,7 +348,7 @@ describe("errorMessage / failedAsCsv", () => {
   });
 });
 
-// The cases shared with the Wealthfolio Broker Sync service (its dedup.ExistingIndex): both must recognise the
+// The cases shared with Wealthfolio Companion (its dedup.ExistingIndex): both must recognise the
 // same activities as already in Wealthfolio. The service's copy of contract/dedup/cases.json is the leading one.
 describe("shared duplicate-detection cases", () => {
   for (const c of contract.cases) {

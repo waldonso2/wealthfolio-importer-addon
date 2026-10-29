@@ -605,13 +605,13 @@ jedem `BUY`/`SELL`/`DIVIDEND` und jeder Cash-Buchung (`DEPOSIT`, `WITHDRAWAL`, `
 `FEE`, `TAX`, `CREDIT`; Status „valid“) eine bestehende Aktivität mit gleichem Konto, Typ
 und Subtyp, höchstens 36 h Abstand, gleicher Stückzahl (nur `BUY`/`SELL`) und
 Betrag ±0,02. Dasselbe Wertpapier (`assetSymbol` = Symbol oder gleiche `assetId`) wird
-bevorzugt; ein Trade passt auch unter einem anderen Symbol (der Broker Sync bucht unter der
+bevorzugt; ein Trade passt auch unter einem anderen Symbol (Wealthfolio Companion bucht unter der
 ISIN, der Import unter dem zugeordneten Ticker), eine Dividende mit anderem Symbol nur,
 wenn sie der einzige Kandidat ist. Überträge werden nie direkt verglichen. Jede bestehende
 Aktivität passt höchstens einmal; die Ziele von `duplicateOfId` sind ausgenommen.
-Seit 3.9.2 (#65) gehören die Cash-Buchungen dazu – vorher legte ein CSV-Import nach dem
-Broker Sync Einzahlungen, Kartenzahlungen und Zinsen doppelt an. Die Regeln sind dieselben
-wie im Broker Sync (`dedup.ExistingIndex`); `contract/dedup/cases.json` hält sie als
+Seit 3.9.2 (#65) gehören die Cash-Buchungen dazu – vorher legte ein CSV-Import nach
+Wealthfolio Companion (damals Broker Sync) Einzahlungen, Kartenzahlungen und Zinsen doppelt an. Die Regeln sind dieselben
+wie in Wealthfolio Companion (`dedup.ExistingIndex`); `contract/dedup/cases.json` hält sie als
 gemeinsame Fälle, die beide Repos testen (`findExistingMatches`), und die CI vergleicht die
 Datei mit der Kopie im Service (#69). Zum Treffer gehören seine Überträge (das Paar, dessen
 Bein auf diesem Konto ≤ 5 s daneben liegt und denselben Betrag hat – der Trade selbst
@@ -1380,6 +1380,6 @@ Die Oberfläche spricht Englisch oder Deutsch und folgt der Spracheinstellung vo
 - **Hook `useT()`:** in der Sandbox `useAddonTranslation()` des SDK (Interpolation `{{name}}`, Plural über `count`; `escapeValue: false`, React maskiert selbst), außerhalb (Unit-Tests) ein lokaler Übersetzer über dieselben Bundles, Sprache `en`, umstellbar mit `setFallbackLanguage("de")`. Welche Variante, wird einmal beim Laden entschieden – die Reihenfolge der Hooks bleibt stabil.
 - **Logikmodule** liefern weiter englischen Text, damit ihre Tests aussagekräftig bleiben, und nehmen für die UI einen Übersetzer an (`importButtonLabel(…, t)`, `mappingLabel(m, t)`, `mappingWarning(…, t)`; Standard Englisch). Übersprungene Zeilen (`SkippedRow`) und PDF-Ergebnisse behalten `reason`/`hint`/`title` auf Englisch und tragen zusätzlich `reasonKey`/`hintKey`/`typeKey` + `params`; erzeugt werden sie mit `msg(key, params)`, der englische Text kommt also aus dem `en`-Bundle. Parse-Fehler (`ParseOutcome`) tragen `errorKey`/`errorParams`. Ein Param `<name>Key` enthält einen Schlüssel, dessen Übersetzung als `<name>` eingesetzt wird (z. B. `whenKey: "skip.when.sameDay"`).
 - **Nie übersetzt:** alles, was in Wealthfolio landet – Kommentare (Teil des Duplikat-Fingerabdrucks, 6.4), Symbole, Gruppen-IDs –, außerdem Daten aus den Dateien (Typen, Namen, Überschriften der Belege) und der CSV-Kopf von „Als CSV kopieren“.
-- **Begriffe** wie im Broker Sync Service, Anrede „du“: Verrechnungskonto, Depotkonto, Aktivität/Buchung, Wertpapier-Zuordnung, Übertrag, Einzahlung, Auszahlung, Dividende, Gebühr, Steuer, „Schon in Wealthfolio“, übersprungen, importieren.
+- **Begriffe** wie in Wealthfolio Companion, Anrede „du“: Verrechnungskonto, Depotkonto, Aktivität/Buchung, Wertpapier-Zuordnung, Übertrag, Einzahlung, Auszahlung, Dividende, Gebühr, Steuer, „Schon in Wealthfolio“, übersprungen, importieren.
 - **Kontonamen:** die Seiten zeigen den Namen des Wealthfolio-Kontos; nur wenn es unbekannt ist (z. B. archiviert), ein übersetztes „Verrechnungskonto (Trade Republic)“ / „Depotkonto (…)“.
 - **Neuer Text:** Schlüssel in `en` und `de` anlegen, in der Komponente `const { t } = useT()` und `t("bereich.schluessel", { … })`; Hervorhebungen als `<strong>`/`<code>` im Text und mit `rich()` rendern.
