@@ -10,8 +10,8 @@ The addon follows Wealthfolio's language setting: its pages are in English or Ge
 
 ## Install and update
 
-Requires **Wealthfolio 3.9** or later. The version follows Wealthfolio: `3.9.x` is built
-and tested for Wealthfolio 3.9, and a new Wealthfolio version gets a matching addon release.
+Requires **Wealthfolio 3.11** or later. The version follows Wealthfolio: `3.11.x` is built
+and tested for Wealthfolio 3.11, and a new Wealthfolio version gets a matching addon release.
 
 1. Download `broker-importer-addon.zip` from the
    [latest release](https://github.com/waldonso2/wealthfolio-importer-addon/releases/latest).

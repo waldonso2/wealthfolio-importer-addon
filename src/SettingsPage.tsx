@@ -43,7 +43,12 @@ function AccountSelect({
 }) {
   const filtered = filterType ? accounts.filter((a) => a.accountType === filterType) : accounts;
   return (
-    <Select value={value} onValueChange={onChange}>
+    // Base UI shows the selected label only from `items` (else the account id)
+    <Select
+      value={value}
+      items={Object.fromEntries(accounts.map((a) => [a.id, `${a.name} (${a.currency})`]))}
+      onValueChange={(v) => onChange(v ?? "")}
+    >
       <SelectTrigger id={id} className="w-full">
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
@@ -236,8 +241,12 @@ export function SettingsPage({ ctx }: { ctx: AddonContext }) {
               />
               <Select
                 value={p.destinationAccountId ?? noDestOption}
+                items={{
+                  [noDestOption]: t("settings.patterns.noDestination"),
+                  ...Object.fromEntries(accounts.map((a) => [a.id, a.name])),
+                }}
                 onValueChange={(v) =>
-                  updatePattern(i, { destinationAccountId: v === noDestOption ? undefined : v })
+                  updatePattern(i, { destinationAccountId: !v || v === noDestOption ? undefined : v })
                 }
               >
                 <SelectTrigger className="w-44 shrink-0" aria-label={t("settings.patterns.destination")}>
