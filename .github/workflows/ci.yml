@@ -65,6 +65,6 @@ jobs:
           persist-credentials: false
       - name: shared dedup cases match the sync service's copy (contract/dedup/README.md)
         run: |
-          url=https://raw.githubusercontent.com/waldonso2/wealthfolio-broker-sync-service/main/contract/dedup/cases.json
+          url=https://raw.githubusercontent.com/waldonso2/wealthfolio-companion/main/contract/dedup/cases.json
           if ! curl -fsSL "$url" -o /tmp/other.json; then echo "The service has no copy on main yet - skipped."; exit 0; fi
           diff -u /tmp/other.json contract/dedup/cases.json || { echo "::error::contract/dedup/cases.json differs from the sync service's (leading) copy - copy it from there."; exit 1; }

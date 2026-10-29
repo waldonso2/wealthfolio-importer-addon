@@ -1,6 +1,6 @@
 # Shared duplicate-detection cases
 
-The Wealthfolio Broker Sync service (`src/brokersync/dedup.py`, `ExistingIndex.find`) and the Broker Importer
+Wealthfolio Companion (`src/brokersync/dedup.py`, `ExistingIndex.find`) and the Broker Importer
 addon (`src/importer.ts`, `matchExisting`) must recognise the same activities as "already in Wealthfolio": an
 import after the sync, or the sync after an import, must never book a transaction twice.
 

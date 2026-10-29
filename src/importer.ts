@@ -96,7 +96,7 @@ export function selectCandidates(
 // ── Already in Wealthfolio from another source ──────────────────────────────
 // checkImport only recognises an activity imported from the same source (same
 // comment and amount). The same transaction imported once from the CSV export
-// and once from the PDF statement - or booked by the Wealthfolio Broker Sync
+// and once from the PDF statement - or booked by Wealthfolio Companion
 // service - differs in comment and time, so it would be created twice.
 // findExistingMatches recognises such activities by their substance, with the
 // same rules as the sync service's dedup.ExistingIndex; both run the shared cases
