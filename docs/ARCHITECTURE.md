@@ -4,7 +4,7 @@ Dieses Dokument beschreibt den Aufbau des Addons so, dass Änderungen gezielt un
 ohne Seiteneffekte vorgenommen werden können. Es ergänzt `CLAUDE.md` (Kurzreferenz
 für Konventionen) und `CONTRIBUTING.md` (Beitragsprozess).
 
-> Stand: Version 3.9.0 (`manifest.json` / `package.json`).
+> Stand: Version 3.11.0 (`manifest.json` / `package.json`).
 > Abschnitte 1–13 beschreiben den Aufbau und den Trade-Republic-Kern; **Abschnitt 14**
 > beschreibt den Scalable-Capital-Import und markiert alle Unterschiede zu Trade Republic;
 > **Abschnitt 15** listet alle Änderungen seit Version 1.3.3; **Abschnitt 16** beschreibt,
@@ -1165,6 +1165,7 @@ Abschnitt 15 (Suchfeld mit Namen in 2.0.1, `amount` bei Trades in 2.0.2).
 | 3.9.0 | Pflege | **Version folgt Wealthfolio** (#32): SDK-Familie 3.7 → 3.9, `sdkVersion`/`minWealthfolioVersion` 3.9.0 (vorher 3.6.0), Version 2.11.0 → 3.9.0 (nur Umnummerierung). `pnpm check:versions` in CI/Release, wöchentlicher `sdk-watch.yml`, Dependabot ignoriert `@wealthfolio/*` Minor/Major. README mit Beispieldateien. Vorbereitung der Community-Listung. Keine Verhaltensänderung. | `manifest.json`, `package.json`, `scripts/check-versions.mjs`, `.github/*`, Doku | 11 |
 | 3.9.2 | Fix | **Cash-Buchungen nach dem Broker Sync nicht doppelt** (#65): `matchExisting` erkennt auch `DEPOSIT`, `WITHDRAWAL`, `INTEREST`, `FEE`, `TAX`, `CREDIT`; Trades passen auch unter anderem Symbol, der Subtyp muss gleich sein – dieselben Regeln wie im Service, gemeinsame Fälle in `contract/dedup/cases.json` (#69). CI mit ESLint, Testabdeckung und Komponententests der Seiten (#70). | `importer.ts`, `contract/`, `eslint.config.js`, `vitest.config.ts`, `.github/*` | 6.4, 10 |
 | 3.9.3 | Feature | **Deutsch und Englisch** (#74): Texte aller Seiten in `src/i18n.ts`, Sprache nach Wealthfolio-Einstellung (`registerTranslations`/`useAddonTranslation` der SDK), Begriffe wie im Broker Sync; Überspring-Gründe mit Schlüssel und Parametern; echte Kontonamen aus Wealthfolio. Was Wealthfolio speichert (Kommentare, Beträge), bleibt unverändert. | `i18n.ts`, alle Seiten, Transformer, `pdf/*` | 18 |
+| 3.11.0 | Pflege | **Gebaut für Wealthfolio 3.11** (#138): SDK-Familie 3.9 → 3.11, `sdkVersion`/`minWealthfolioVersion` 3.11.0 (Nutzer älterer Wealthfolio-Versionen bleiben bei 3.9.6). Die UI-Komponenten der SDK wechseln von Radix zu Base UI: die Konto-Auswahlen geben ihre Beschriftungen als `items` mit (sonst zeigt `Select` die Konto-ID), `onValueChange` kann `null` liefern, `Progress` nimmt `null` für unbestimmt. Keine Änderung am Import. | `manifest.json`, `package.json`, `src/SettingsPage.tsx`, `src/ImportPage.tsx` | 11 |
 
 Doku ohne Versionssprung: diese Architekturdatei (PR #1) und ihr Planungsabschnitt 14
 (Teil von PR #3). Pipeline ohne Versionssprung: `opencode.yml` entfernt (nach 2.2.0).

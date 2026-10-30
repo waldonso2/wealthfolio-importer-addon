@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.11.0] - 2026-10-30
+
+### Changed
+
+- **Built for Wealthfolio 3.11** (#138): `@wealthfolio/addon-sdk`, `@wealthfolio/ui` and `@wealthfolio/addon-dev-tools` 3.11.0; `sdkVersion` and `minWealthfolioVersion` 3.11.0. The addon now needs Wealthfolio 3.11 or later; on Wealthfolio 3.9 or 3.10 keep the addon 3.9.6.
+- Wealthfolio's UI components moved from Radix to Base UI. The account selects in the settings pass their labels (`items`), so they keep showing the account's name instead of its id; a select that is cleared counts as no choice.
+
 ## [3.9.6] - 2026-10-17
 
 ### Fixed

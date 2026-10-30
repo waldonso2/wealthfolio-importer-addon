@@ -45,6 +45,15 @@ describe("SettingsPage", () => {
   });
 });
 
+describe("SettingsPage account selects", () => {
+  it("show the chosen account's name, not its id", async () => {
+    const ctx = fakeContext({ brokers: { "trade-republic": { cashAccountId: "cash", portfolioAccountId: "" } } });
+    render(<SettingsPage ctx={ctx} />);
+    expect(await screen.findByText("Test Cash (EUR)")).toBeTruthy();
+    expect(screen.queryByText("cash")).toBeNull();
+  });
+});
+
 describe("SettingsPage in German", () => {
   it("follows the language with the German texts", async () => {
     setFallbackLanguage("de");
