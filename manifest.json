@@ -25,16 +25,10 @@
       "functions": [
         { "name": "checkImport", "isDeclared": true, "isDetected": false },
         { "name": "getAll", "isDeclared": true, "isDetected": false },
-        { "name": "saveMany", "isDeclared": true, "isDetected": false },
         { "name": "create", "isDeclared": true, "isDetected": false },
         { "name": "update", "isDeclared": true, "isDetected": false }
       ],
       "purpose": "Validate and import activities parsed from broker CSV exports and PDF statements; read existing trades and dividends to skip transactions already imported from another source; move activities to the right asset when a security mapping is corrected"
-    },
-    {
-      "category": "assets",
-      "functions": [{ "name": "create", "isDeclared": true, "isDetected": false }],
-      "purpose": "Create new asset entries for unrecognised securities during import"
     },
     {
       "category": "secrets",
