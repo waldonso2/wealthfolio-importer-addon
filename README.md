@@ -23,7 +23,8 @@ This is a community addon (see the [Wealthfolio community directory](https://wea
 Wealthfolio installs community addons only from file and doesn't update them, and the
 addon itself makes no network requests. To update, watch this repository's releases
 (GitHub: **Watch → Custom → Releases**) or the directory, and install the new ZIP the same
-way. Reinstalling keeps your settings.
+way. Wealthfolio stores the settings as addon data; whether they survive an uninstall
+isn't documented, so note your account selection before uninstalling.
 
 Upgrading from **Trade Republic Importer** (≤ 1.4.0): the addon ID changed, so
 uninstall the old addon, install this one and set up the settings again. Already
@@ -65,7 +66,7 @@ by Matthes Voß (MIT, a browser userscript; not part of this addon):
 2. Log in to Scalable Capital and open the **Transactions** page of your broker account
    (reload the page if the menu entries below don't appear).
 3. In the Tampermonkey menu choose **Export Transactions CSV DE**, optionally limit the
-   date range, and save `scalable_transactions_export_<date>_de.csv`.
+   date range, and save the file (`scalable_transactions_export_<date>_<time>.csv`).
 
 Use the **DE** variant: it writes `;`-separated columns with German headers, which the
 importer recognises. The **EN** variant (comma-separated, English headers) is not supported.
