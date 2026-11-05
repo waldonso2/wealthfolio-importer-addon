@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.12.1] - 2026-11-05
+
+### Changed
+
+- **README revised** (#156): a privacy note up front (everything is processed locally, no network requests), the "Supported transactions" section condensed into one table that points to the architecture doc, and the terms checked against the UI texts. No change to the addon's behaviour.
+
 ## [3.12.0] - 2026-11-05
 
 ### Changed

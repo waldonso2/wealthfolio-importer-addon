@@ -6,6 +6,8 @@ Republic**, **Scalable Capital** and **DKB**. The broker is detected automatical
 broker uses its own pair of Wealthfolio accounts (cash + securities), with internal
 transfers between them so balances and spending stay correct.
 
+**Privacy:** everything is processed locally in Wealthfolio. The addon makes no network requests, so your files and data never leave your device.
+
 The addon follows Wealthfolio's language setting: its pages are in English or German.
 
 ## Install and update
@@ -126,35 +128,15 @@ exported.
 
 ## Supported transactions
 
-**Trade Republic**
+| | Trade Republic | Scalable Capital |
+| --- | --- | --- |
+| Trades | Buy / sell (BUY / SELL with fee and tax in their own fields + internal cash transfer), savings plan, Saveback, gifted shares | Kauf / Verkauf, fund liquidation, certificate redemption (SELL) |
+| Income | Dividend, fund distribution, share-exchange cash, interest (DIVIDEND / INTEREST in the payout currency, withholding tax in its tax field) | Dividende, Zinsen (net, cancellations netted out) |
+| Cash | Deposits, withdrawals, card payments, direct debits (DEPOSIT / WITHDRAWAL, or TRANSFER via transfer pattern) | Einlage / Entnahme (DEPOSIT / WITHDRAWAL, or TRANSFER via transfer pattern) |
+| Fees and taxes | Card fee, referral bonus, Vorabpauschale, tax adjustments (FEE, CREDIT, TAX) | FEE, TAX, Steuerrückerstattung |
+| Corporate actions | Splits, stock dividends, reinvestment, share exchange / ADR / reverse split into a new ISIN, worthless write-off | Depot migration (skipped) |
 
-| Type | Wealthfolio |
-| --- | --- |
-| Buy / Sell | BUY / SELL with fee and tax in their own fields + internal cash transfer |
-| Dividend, fund distribution, share-exchange cash | one DIVIDEND in the payout currency with the withholding tax in its tax field (original foreign amount in the comment) + transfer to cash; reversals are netted out |
-| Vorabpauschale, tax adjustments / optimisation | TAX, or CREDIT (tax refund) when positive |
-| Deposits (`CUSTOMER_INBOUND`, `TRANSFER_INBOUND`, …) | DEPOSIT |
-| Outgoing transfers (`TRANSFER_OUTBOUND`, `CUSTOMER_OUTBOUND_REQUEST`, direct debits) | WITHDRAWAL, or TRANSFER via transfer pattern |
-| Card payments / refunds | WITHDRAWAL / DEPOSIT |
-| Interest, card fee, Saveback, referral bonus | INTEREST (withholding tax in its tax field), FEE, CREDIT (bonus) |
-| Gifted shares (Stockperk), share delivery | BUY funded by a bonus credit, TRANSFER_IN |
-| ISIN migration | skipped |
-| Share exchange, ADR discontinuation, reorganisation, reverse split into a new ISIN | TRANSFER_OUT of the old and TRANSFER_IN of the new ISIN, carrying the cost basis (computed from the file) |
-| Worthless write-off | SELL at 0 |
-| Stock split | SPLIT (ratio derived from the shares held, computed from the file) |
-| Stock dividend | DIVIDEND in kind (income plus shares) |
-| Dividend reinvestment | BUY of the new shares, paid from the cash account |
-
-**Scalable Capital**
-
-| Typ | Wealthfolio |
-| --- | --- |
-| Kauf / Verkauf | BUY / SELL with fee and tax in their own fields + internal cash transfer |
-| Dividende | DIVIDEND (net) + transfer to cash; cancellations are netted out |
-| Einlage / Entnahme | DEPOSIT / WITHDRAWAL, or TRANSFER via transfer pattern |
-| Zinsen, FEE, TAX, Steuerrückerstattung | INTEREST, FEE, TAX, CREDIT (tax refund) |
-| Fund liquidation (`SWAP_OUT`), certificate redemption | SELL |
-| Depot migration (paired out/in transfers) | skipped |
+The exact mapping of every type is documented in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (German).
 
 Rows that aren't imported are listed under **Skipped**, never silently dropped. Each
 shows a status – *No action needed* (e.g. a reversal and the dividend it cancels) or
