@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.12.0] - 2026-11-05
+
+### Changed
+
+- **Built for Wealthfolio 3.12** (#157): `@wealthfolio/addon-sdk`, `@wealthfolio/ui` and `@wealthfolio/addon-dev-tools` 3.12.0; `sdkVersion` and `minWealthfolioVersion` 3.12.0. The addon now needs Wealthfolio 3.12 or later; on Wealthfolio 3.11 keep the addon 3.11.0. No change to the import.
+
 ## [3.11.0] - 2026-10-30
 
 ### Changed
