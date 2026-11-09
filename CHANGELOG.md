@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.12.2] - 2026-11-09
+
+### Changed
+
+- **Fewer permissions** (feedback from the community listing review): `activities.saveMany` and the whole `assets` category (`create`) are no longer declared in the manifest. Neither is called anywhere in `src/`; assets are still created implicitly through the `asset` field of `create` and `update`. - **Dev dependencies updated** (`pnpm audit --fix=update`): vite 8.3.6 (the build tool; was 8.2.x with several advisories), rolldown, postcss, body-parser, proxy-addr and source-map-js (the development server's chain), nanoid and qs. All are build and test tools; `pnpm audit --prod`, what ships in `addon.js`, was clean and still is. Three moderate advisories remain in tools no newer version fixes yet (minimatch below `typescript-eslint`, `@vitest/mocker`); qs is forced to 6.16.1 or newer by an override in `pnpm-workspace.yaml`, because the dev server's express asks for an older one.
+
+No change to the addon's behaviour.
+
 ## [3.12.1] - 2026-11-05
 
 ### Changed
