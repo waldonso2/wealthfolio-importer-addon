@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.12.2] - 2026-11-09
+
+### Changed
+
+- **Fewer permissions** (feedback from the community listing review): `activities.saveMany` and the whole `assets` category (`create`) are no longer declared in the manifest. Neither is called anywhere in `src/`; assets are still created implicitly through the `asset` field of `create` and `update`. No change to the addon's behaviour.
+
 ## [3.12.1] - 2026-11-05
 
 ### Changed

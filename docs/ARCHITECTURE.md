@@ -736,8 +736,7 @@ Das Addon muss jede genutzte SDK-Funktion im Manifest deklarieren. Aktuelle Nutz
 | Kategorie | Funktionen | Genutzt in |
 |---|---|---|
 | `accounts` | `getAll` | ImportPage, SettingsPage |
-| `activities` | `checkImport`, `getAll` (seit 2.11.0, Abgleich mit dem Bestand, 6.4), `create`, `update` (`saveMany` deklariert, derzeit ungenutzt) | ImportPage |
-| `assets` | `create` (deklariert; Assets entstehen implizit über `asset` im Create/Update) | – |
+| `activities` | `checkImport`, `getAll` (seit 2.11.0, Abgleich mit dem Bestand, 6.4), `create`, `update` | ImportPage |
 | `secrets` | `get`, `set` | settings.ts |
 | `ui` | `sidebar.addItem`, `navigation.navigate`, `router.add`, `onDisable` | addon.tsx |
 | `query` | `invalidateQueries` | ImportPage |
@@ -880,7 +879,7 @@ keine Release-Notes.
   `importer.test.ts` absichern; `ImportPage.handleImport` ruft sie nur auf. Die
   `lineNumber → transferGroupId`-Zuordnung (6.3) muss erhalten bleiben.
 - Ein Umstieg auf `activities.saveMany` / Bulk-Import würde Wealthfolios eigenen
-  Transfer-Linker aktivieren – dann `sourceGroupId`-Logik neu bewerten.
+  Transfer-Linker aktivieren – dann `sourceGroupId`-Logik neu bewerten und `saveMany` wieder in `permissions` eintragen.
 - Duplikaterkennung hängt am Fingerabdruck aus 6.4 – Felder, die in ihn eingehen,
   nicht nebenbei ändern.
 
@@ -919,7 +918,7 @@ Diese Punkte sind **beobachtet, nicht behoben** – relevant als Ausgangspunkt f
    entfällt, weil der PDF-Import seit 2.10.0 im selben Addon liegt (17.1).
 4. **Sequenzieller Import**: ein SDK-Aufruf pro Aktivität – langsam bei großen
    Dateien. Fehlschläge werden seit 2.8.0 einzeln angezeigt und lassen sich wiederholen.
-5. **`saveMany` und `assets.create`** sind deklariert, aber ungenutzt.
+5. ~~**`saveMany` und `assets.create`** waren deklariert, aber ungenutzt~~ – entfernt aus `permissions`; Assets entstehen implizit über `asset` im Create/Update.
 6. **Keine Komponententests**; abgesichert sind Transformer, `formats.ts`, `common.ts`,
    `reconcile.ts` und `importer.ts`. Insbesondere die Zusammenarbeit mit Wealthfolio (`checkImport`,
    Anlegen von Aktivitäten) ist nur am echten Addon prüfbar.
